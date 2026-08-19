@@ -19,9 +19,27 @@ self-contained — no dependencies, no build step needed to view it).
    mid-sheet: released, the sheet springs open but a wedge-shaped crease stays.
 4. **Work a full crease** — after the fold, the fingertip presses along the
    whole folded edge: released, the sheet stays folded.
+5. **Two thumbs out** — three fingertips land behind the folded edge and iron
+   over it together; the middle one holds while the outer two sweep to the
+   corners. One sweep, a full crease.
 
-The bench exposes mesh resolution (17–33 per side), finger tempo, and press
-clearance; every run is deterministic.
+The bench exposes mesh resolution (17–81 per side), finger tempo, press
+clearance, and the compute backend; every run is deterministic.
+
+## WebGPU backend
+
+`gpu.js` runs the same solver on the GPU: constraint solves as graph-colored
+compute dispatches (8 distance groups, 16 hinge groups — structured coloring on
+the grid), a 2D uniform-grid hash with atomic linked lists for self-collision,
+and plasticity on-device. The CPU evaluates the scenario script (one record per
+substep) and reads positions + crease state back each frame, so the renderer
+and UI are backend-agnostic. Parity vs the CPU backend: ≤0.01 position drift
+after 3 simulated seconds (f32 + constraint-order noise).
+
+Measured (Apple Silicon, Chrome): N=41 real-time, N=61 ≈ 2× slow-mo,
+N=81 ≈ 4× slow-mo — the substep count grows quadratically with resolution
+(PBD stiffness propagates one constraint per substep), which is the real
+scaling wall; the GPU absorbs the per-substep width.
 
 ## Model
 
@@ -56,8 +74,9 @@ just isotropic + broadside drag.
 | File | Purpose |
 | --- | --- |
 | `sim.js` | physics core + scenario scripts (runs in Node and the browser) |
+| `gpu.js` | WebGPU compute backend (same solver, graph-colored) |
 | `index.template.html` | page: custom Canvas-2D painter's-algorithm 3D renderer + UI |
-| `build.js` | inlines `sim.js` into the template → `dist/crease-lab.html` |
+| `build.js` | inlines `sim.js` + `gpu.js` into the template → `dist/crease-lab.html` |
 | `test-grad.js` | finite-difference check of the hinge-angle gradients |
 | `test-scenarios.js` | headless behavioral tests for all four scenarios |
 | `sweep.js` | parameter-sweep harness used for tuning |

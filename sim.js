@@ -371,8 +371,9 @@
         cb[o + 3] = bx_; cb[o + 4] = by_; cb[o + 5] = bz_;
         cb[o + 6] = r_; nc++;
       };
-      if (world.finger) {
-        const f = world.finger, hl = f.hl || 0, fx = f.ax || [1, 0, 0];
+      const fingers = world.fingers || (world.finger ? [world.finger] : []);
+      for (const f of fingers) {
+        const hl = f.hl || 0, fx = f.ax || [1, 0, 0];
         addCol(f.c[0] - fx[0] * hl, f.c[1] - fx[1] * hl, f.c[2] - fx[2] * hl,
           f.c[0] + fx[0] * hl, f.c[1] + fx[1] * hl, f.c[2] + fx[2] * hl, f.r);
         addCol(f.c[0], f.c[1], f.c[2], f.c[0], f.c[1] + P.stemLen, f.c[2], P.fingerStemR);
@@ -414,7 +415,7 @@
       // --- self collision (spatial hash); a flat-lying sheet cannot self-touch
       let anyHigh = false;
       for (let i = 0; i < paper.NP; i++) if (pos[i * 3 + 1] > 0.05) { anyHigh = true; break; }
-      if (anyHigh || world.finger) selfCollide(paper);
+      if (anyHigh || fingers.length) selfCollide(paper);
 
       // --- desk plane + friction
       for (let i = 0; i < paper.NP; i++) {
@@ -457,22 +458,25 @@
     // fold that merely falls closed reads the same sharp hinge angle as a pressed
     // crease, so plastic flow is gated to hinges being squeezed by the finger.
     const world = worldAt(paper.time);
-    const fingerNow = world.finger || null;
-    if (fingerNow) {
+    const fingersNow = world.fingers || (world.finger ? [world.finger] : []);
+    if (fingersNow.length) {
       const yieldA = PARAMS.yieldK * paper.H; // same yield *curvature* at every resolution
-      const fc = fingerNow.c, fr = fingerNow.r + 0.05;
-      const fax = fingerNow.ax || [1, 0, 0];
-      const fhl = fingerNow.hl || 0;
       for (let k = 0; k < hinges.length; k++) {
         const h = hinges[k];
-        // distance from hinge midpoint to the capsule axis segment
-        const mx = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2 - fc[0];
-        const my = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2 - fc[1];
-        const mz = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2 - fc[2];
-        let sdot = mx * fax[0] + my * fax[1] + mz * fax[2];
-        if (sdot > fhl) sdot = fhl; else if (sdot < -fhl) sdot = -fhl;
-        const qx = mx - sdot * fax[0], qy = my - sdot * fax[1], qz = mz - sdot * fax[2];
-        if (qx * qx + qy * qy + qz * qz > fr * fr) continue;
+        // distance from hinge midpoint to any fingertip's axis segment
+        const mx0 = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2;
+        const my0 = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2;
+        const mz0 = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2;
+        let pressed = false;
+        for (const f of fingersNow) {
+          const fr = f.r + 0.05, fax = f.ax || [1, 0, 0], fhl = f.hl || 0;
+          const mx = mx0 - f.c[0], my = my0 - f.c[1], mz = mz0 - f.c[2];
+          let sdot = mx * fax[0] + my * fax[1] + mz * fax[2];
+          if (sdot > fhl) sdot = fhl; else if (sdot < -fhl) sdot = -fhl;
+          const qx = mx - sdot * fax[0], qy = my - sdot * fax[1], qz = mz - sdot * fax[2];
+          if (qx * qx + qy * qy + qz * qz <= fr * fr) { pressed = true; break; }
+        }
+        if (!pressed) continue;
         const thRaw = hingeAngle(paper.pos, h, false);
         if (thRaw !== thRaw) continue;
         const ex = h.thC + wrapPi(thRaw - h.thC) - h.theta0;
@@ -628,6 +632,14 @@
       return { pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(c) };
     };
     const STATIONS = [0, 0.15, 0.3, 0.45, -0.15, -0.3, -0.45];
+    // scenario-5 helpers: three fingertips on the fold line; the center one
+    // holds while the outer two sweep outward toward the corners. They land
+    // slightly behind the crest and nudge forward over it (a vertical press
+    // on the crest itself just squirts the fold tube away).
+    const s5Y = P.fingerR + 0.008;
+    const s5At = (s, y, back) => [SWC + back + F_AX[0] * s, y, SWC + back + F_AX[2] * s];
+    const S5_BK = -0.06, S5_FR = 0.04;
+    const S5_START = 0.24, S5_END = 0.62;
     // s4's approach glides above the sheet (no deep slide — pressing a held
     // flap while sliding wrinkles it; the stations do all the creasing)
     const glideY = P.fingerR + 0.026;
@@ -684,6 +696,33 @@
           { dur: 1.2 / fs, label: 'The fingertip lifts away — the crease now runs corner to corner', fn: k => ({ pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(lerp3(stHi(STATIONS[STATIONS.length - 1]), F_UP, smooth(k))) }) },
           { dur: 1.0, label: 'The grips let go — a full crease holds the fold by itself', fn: () => ({ pinA: true, finger: null }) },
           { dur: 3.5, label: 'Everything released — the sheet stays folded', fn: () => ({ pinA: false, finger: null }) },
+        ],
+      },
+      's5': {
+        title: 'Two thumbs out — three-finger crease (experiment)',
+        phases: [
+          { dur: 0.8, label: 'Actuator 1 presses corner A onto the desk', fn: () => ({ pinA: true, fingers: [] }) },
+          { dur: 3.6, label: 'Three grips turn the C-half over the diagonal; the other hand holds the sheet flat', fn: k => ({ pinA: true, grabs: k < 0.8 ? flap(Math.PI * smooth(k)).concat(HOLDS) : flap(Math.PI * smooth(k)), fingers: [] }) },
+          { dur: 0.6, label: 'The folded half is held down', fn: () => ({ pinA: true, grabs: FLAP_DOWN, fingers: [] }) },
+          { dur: 1.4 / fs, label: 'Three fingertips descend together, just behind the folded edge', fn: k => {
+            const y = 0.5 + (s5Y - 0.5) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, y, S5_BK)), fing(s5At(S5_START, y, S5_BK)), fing(s5At(-S5_START, y, S5_BK))] };
+          } },
+          { dur: 1.2 / fs, label: 'All three iron forward over the edge together', fn: k => {
+            const b = S5_BK + (S5_FR - S5_BK) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, s5Y, b)), fing(s5At(S5_START, s5Y, b)), fing(s5At(-S5_START, s5Y, b))] };
+          } },
+          { dur: 4.5 / fs, label: 'The middle finger holds; the outer two sweep out toward the corners', fn: k => {
+            const s = S5_START + (S5_END - S5_START) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, s5Y, S5_FR)), fing(s5At(s, s5Y, S5_FR)), fing(s5At(-s, s5Y, S5_FR))] };
+          } },
+          { dur: 0.8 / fs, label: 'Holding at the corners', fn: () => ({ pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, s5Y, S5_FR)), fing(s5At(S5_END, s5Y, S5_FR)), fing(s5At(-S5_END, s5Y, S5_FR))] }) },
+          { dur: 1.2 / fs, label: 'All three fingertips lift away', fn: k => {
+            const y = s5Y + (0.55 - s5Y) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, y, S5_FR)), fing(s5At(S5_END, y, S5_FR)), fing(s5At(-S5_END, y, S5_FR))] };
+          } },
+          { dur: 1.0, label: 'The grips let go', fn: () => ({ pinA: true, fingers: [] }) },
+          { dur: 3.5, label: 'Everything released — how well did the sweep crease it?', fn: () => ({ pinA: false, fingers: [] }) },
         ],
       },
     };

@@ -124,5 +124,20 @@ run('s4', (m, paper, peakY) => {
   console.log(`  info: ${strong.length} strong hinges, along-line span ${f(Math.min(...along))}..${f(Math.max(...along))}, C at [${end.C.map(f)}]`);
 });
 
+// ---------------- scenario 5: two-thumb sweep (experimental) -> full crease
+run('s5', (m) => {
+  const last = SIM.getScenarios().s5.phases.length - 1;
+  const end = m[last];
+  check('no NaN', !end.nan);
+  const strong = end.creases.filter(c => Math.abs(c.theta0) > 0.5);
+  check('the sweep creases the fold', strong.length >= 20, `strongHinges=${strong.length}`);
+  const along = strong.map(c => (c.v - c.u) / Math.SQRT2);
+  check('crease reaches toward both corners', Math.max(...along) > 0.3 && Math.min(...along) < -0.3,
+    `along=${f(Math.min(...along))}..${f(Math.max(...along))}`);
+  check('sheet stays folded', d3(end.C, end.A) < 0.5, `dCA=${f(d3(end.C, end.A))}`);
+  check('settled', end.maxSpeed < 0.3, `v=${f(end.maxSpeed)}`);
+  console.log(`  info: ${strong.length} strong hinges, span ${f(Math.min(...along))}..${f(Math.max(...along))}`);
+});
+
 console.log(failures === 0 ? '\nALL SCENARIO TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

@@ -324,6 +324,13 @@
         folded edge, pressing it flat spot by spot out to both corners.</p>
         <span class="watch">watch: released, the sheet stays folded</span>
       </button>
+      <button class="card" id="card-s5" data-sc="s5">
+        <span class="num">5</span>
+        <h2>Two thumbs out</h2>
+        <p>Three fingertips land behind the folded edge and iron over it together;
+        the middle one holds while the outer two sweep out to the corners.</p>
+        <span class="watch">watch: one sweep, a full crease</span>
+      </button>
     </nav>
 
     <div class="controls">
@@ -345,9 +352,19 @@
           <button data-n="17">17</button>
           <button data-n="21">21</button>
           <button data-n="25" class="on">25</button>
-          <button data-n="29">29</button>
           <button data-n="33">33</button>
+          <button data-n="41">41</button>
+          <button data-n="61">61</button>
+          <button data-n="81">81</button>
         </div>
+      </div>
+      <div class="prow">
+        <span class="plabel">Compute</span>
+        <div class="seg" id="computeSeg" role="group" aria-label="Compute backend">
+          <button data-compute="cpu" class="on">CPU</button>
+          <button data-compute="gpu" id="gpuBtn">GPU</button>
+        </div>
+        <output id="computeOut"></output>
       </div>
       <div class="prow">
         <label class="plabel" for="fingerSpeed">Finger speed</label>
@@ -359,9 +376,11 @@
         <input type="range" id="pressGap" min="0.008" max="0.028" step="0.002" value="0.020">
         <output id="pressGapOut" for="pressGap">0.020</output>
       </div>
-      <p class="note">Finger speed and clearance shape scenario 3's pinch. A finer
+      <p class="note">Finger speed and clearance shape the pinch scenarios. A finer
       mesh folds more cleanly but costs more compute — the physics substep rate
-      scales with resolution. Changing a parameter restarts the run.</p>
+      scales with resolution. Meshes above 33 really want the WebGPU backend
+      (same solver, graph-colored onto the GPU). Changing a parameter restarts
+      the run.</p>
     </section>
 
     <section class="explain">
@@ -787,8 +806,9 @@
         cb[o + 3] = bx_; cb[o + 4] = by_; cb[o + 5] = bz_;
         cb[o + 6] = r_; nc++;
       };
-      if (world.finger) {
-        const f = world.finger, hl = f.hl || 0, fx = f.ax || [1, 0, 0];
+      const fingers = world.fingers || (world.finger ? [world.finger] : []);
+      for (const f of fingers) {
+        const hl = f.hl || 0, fx = f.ax || [1, 0, 0];
         addCol(f.c[0] - fx[0] * hl, f.c[1] - fx[1] * hl, f.c[2] - fx[2] * hl,
           f.c[0] + fx[0] * hl, f.c[1] + fx[1] * hl, f.c[2] + fx[2] * hl, f.r);
         addCol(f.c[0], f.c[1], f.c[2], f.c[0], f.c[1] + P.stemLen, f.c[2], P.fingerStemR);
@@ -830,7 +850,7 @@
       // --- self collision (spatial hash); a flat-lying sheet cannot self-touch
       let anyHigh = false;
       for (let i = 0; i < paper.NP; i++) if (pos[i * 3 + 1] > 0.05) { anyHigh = true; break; }
-      if (anyHigh || world.finger) selfCollide(paper);
+      if (anyHigh || fingers.length) selfCollide(paper);
 
       // --- desk plane + friction
       for (let i = 0; i < paper.NP; i++) {
@@ -873,22 +893,25 @@
     // fold that merely falls closed reads the same sharp hinge angle as a pressed
     // crease, so plastic flow is gated to hinges being squeezed by the finger.
     const world = worldAt(paper.time);
-    const fingerNow = world.finger || null;
-    if (fingerNow) {
+    const fingersNow = world.fingers || (world.finger ? [world.finger] : []);
+    if (fingersNow.length) {
       const yieldA = PARAMS.yieldK * paper.H; // same yield *curvature* at every resolution
-      const fc = fingerNow.c, fr = fingerNow.r + 0.05;
-      const fax = fingerNow.ax || [1, 0, 0];
-      const fhl = fingerNow.hl || 0;
       for (let k = 0; k < hinges.length; k++) {
         const h = hinges[k];
-        // distance from hinge midpoint to the capsule axis segment
-        const mx = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2 - fc[0];
-        const my = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2 - fc[1];
-        const mz = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2 - fc[2];
-        let sdot = mx * fax[0] + my * fax[1] + mz * fax[2];
-        if (sdot > fhl) sdot = fhl; else if (sdot < -fhl) sdot = -fhl;
-        const qx = mx - sdot * fax[0], qy = my - sdot * fax[1], qz = mz - sdot * fax[2];
-        if (qx * qx + qy * qy + qz * qz > fr * fr) continue;
+        // distance from hinge midpoint to any fingertip's axis segment
+        const mx0 = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2;
+        const my0 = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2;
+        const mz0 = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2;
+        let pressed = false;
+        for (const f of fingersNow) {
+          const fr = f.r + 0.05, fax = f.ax || [1, 0, 0], fhl = f.hl || 0;
+          const mx = mx0 - f.c[0], my = my0 - f.c[1], mz = mz0 - f.c[2];
+          let sdot = mx * fax[0] + my * fax[1] + mz * fax[2];
+          if (sdot > fhl) sdot = fhl; else if (sdot < -fhl) sdot = -fhl;
+          const qx = mx - sdot * fax[0], qy = my - sdot * fax[1], qz = mz - sdot * fax[2];
+          if (qx * qx + qy * qy + qz * qz <= fr * fr) { pressed = true; break; }
+        }
+        if (!pressed) continue;
         const thRaw = hingeAngle(paper.pos, h, false);
         if (thRaw !== thRaw) continue;
         const ex = h.thC + wrapPi(thRaw - h.thC) - h.theta0;
@@ -1044,6 +1067,14 @@
       return { pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(c) };
     };
     const STATIONS = [0, 0.15, 0.3, 0.45, -0.15, -0.3, -0.45];
+    // scenario-5 helpers: three fingertips on the fold line; the center one
+    // holds while the outer two sweep outward toward the corners. They land
+    // slightly behind the crest and nudge forward over it (a vertical press
+    // on the crest itself just squirts the fold tube away).
+    const s5Y = P.fingerR + 0.008;
+    const s5At = (s, y, back) => [SWC + back + F_AX[0] * s, y, SWC + back + F_AX[2] * s];
+    const S5_BK = -0.06, S5_FR = 0.04;
+    const S5_START = 0.24, S5_END = 0.62;
     // s4's approach glides above the sheet (no deep slide — pressing a held
     // flap while sliding wrinkles it; the stations do all the creasing)
     const glideY = P.fingerR + 0.026;
@@ -1100,6 +1131,33 @@
           { dur: 1.2 / fs, label: 'The fingertip lifts away — the crease now runs corner to corner', fn: k => ({ pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(lerp3(stHi(STATIONS[STATIONS.length - 1]), F_UP, smooth(k))) }) },
           { dur: 1.0, label: 'The grips let go — a full crease holds the fold by itself', fn: () => ({ pinA: true, finger: null }) },
           { dur: 3.5, label: 'Everything released — the sheet stays folded', fn: () => ({ pinA: false, finger: null }) },
+        ],
+      },
+      's5': {
+        title: 'Two thumbs out — three-finger crease (experiment)',
+        phases: [
+          { dur: 0.8, label: 'Actuator 1 presses corner A onto the desk', fn: () => ({ pinA: true, fingers: [] }) },
+          { dur: 3.6, label: 'Three grips turn the C-half over the diagonal; the other hand holds the sheet flat', fn: k => ({ pinA: true, grabs: k < 0.8 ? flap(Math.PI * smooth(k)).concat(HOLDS) : flap(Math.PI * smooth(k)), fingers: [] }) },
+          { dur: 0.6, label: 'The folded half is held down', fn: () => ({ pinA: true, grabs: FLAP_DOWN, fingers: [] }) },
+          { dur: 1.4 / fs, label: 'Three fingertips descend together, just behind the folded edge', fn: k => {
+            const y = 0.5 + (s5Y - 0.5) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, y, S5_BK)), fing(s5At(S5_START, y, S5_BK)), fing(s5At(-S5_START, y, S5_BK))] };
+          } },
+          { dur: 1.2 / fs, label: 'All three iron forward over the edge together', fn: k => {
+            const b = S5_BK + (S5_FR - S5_BK) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, s5Y, b)), fing(s5At(S5_START, s5Y, b)), fing(s5At(-S5_START, s5Y, b))] };
+          } },
+          { dur: 4.5 / fs, label: 'The middle finger holds; the outer two sweep out toward the corners', fn: k => {
+            const s = S5_START + (S5_END - S5_START) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, s5Y, S5_FR)), fing(s5At(s, s5Y, S5_FR)), fing(s5At(-s, s5Y, S5_FR))] };
+          } },
+          { dur: 0.8 / fs, label: 'Holding at the corners', fn: () => ({ pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, s5Y, S5_FR)), fing(s5At(S5_END, s5Y, S5_FR)), fing(s5At(-S5_END, s5Y, S5_FR))] }) },
+          { dur: 1.2 / fs, label: 'All three fingertips lift away', fn: k => {
+            const y = s5Y + (0.55 - s5Y) * smooth(k);
+            return { pinA: true, grabs: FLAP_DOWN_SOFT, fingers: [fing(s5At(0, y, S5_FR)), fing(s5At(S5_END, y, S5_FR)), fing(s5At(-S5_END, y, S5_FR))] };
+          } },
+          { dur: 1.0, label: 'The grips let go', fn: () => ({ pinA: true, fingers: [] }) },
+          { dur: 3.5, label: 'Everything released — how well did the sweep crease it?', fn: () => ({ pinA: false, fingers: [] }) },
         ],
       },
     };
@@ -1162,6 +1220,780 @@
 
 </script>
 <script>
+/*
+ * gpu.js — WebGPU compute backend for the paper model in sim.js.
+ *
+ * Same algorithm (small-substeps XPBD), executed on the GPU:
+ *  - Gauss-Seidel constraint solves run as graph-colored dispatches
+ *    (8 distance groups, 16 hinge groups — structured coloring on the grid).
+ *  - Self-collision uses a 2D uniform grid hash (atomic linked lists) with
+ *    per-side half-corrections and layer friction.
+ *  - Actuator colliders, desk friction, broadside drag, and rest-angle
+ *    plasticity (pressure-gated) all ported 1:1 from sim.js, in f32.
+ *
+ * The CPU still evaluates scenario scripts (one record per substep) and reads
+ * positions + crease state back each frame, so the Canvas renderer and UI are
+ * unchanged. Behavior matches the CPU backend up to f32 and constraint-order
+ * differences (colored vs sequential).
+ */
+(function (root, factory) {
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory();
+  else root.GPUSIM = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  const WG = 64;
+  const MAXSUB = 256;
+  const SUB_STRIDE = 768;        // per-substep script record (bytes, 256-aligned)
+  const MAXGRAB = 8, MAXCOL = 16;
+  const GRID_DIM = 128, GRID_ORG = -1.5, GRID_SPAN = 4.0;
+
+  function available() {
+    return typeof navigator !== 'undefined' && !!navigator.gpu;
+  }
+
+  // ------------------------------------------------------------- coloring
+  // classify edges into 8 conflict-free groups, hinges into 16
+  function colorEdges(paper) {
+    const N = paper.N;
+    const groups = Array.from({ length: 8 }, () => []);
+    for (const e of paper.edges) {
+      const ia = Math.floor(e.a / N), ja = e.a % N;
+      const ib = Math.floor(e.b / N), jb = e.b % N;
+      const di = ib - ia, dj = jb - ja;
+      let g;
+      if (di === 0) g = 0 + (ja % 2);              // horizontal
+      else if (dj === 0) g = 2 + (ia % 2);         // vertical
+      else if (dj === -1) g = 4 + (ia % 2);        // BD diagonal (a = v10, b = v01)
+      else g = 6 + (ia % 2);                       // shear diagonal
+      groups[g].push(e);
+    }
+    return groups;
+  }
+  function colorHinges(paper) {
+    const N = paper.N;
+    const groups = Array.from({ length: 16 }, () => []);
+    for (const h of paper.hinges) {
+      const i0 = Math.floor(h.e0 / N), j0 = h.e0 % N;
+      const i1 = Math.floor(h.e1 / N), j1 = h.e1 % N;
+      let g;
+      if (i1 - i0 === 1 && j1 - j0 === -1) {
+        g = (i0 % 2) * 2 + (j1 % 2);                       // cell diagonal: 0..3
+      } else if (j1 === j0) {
+        g = 4 + (i0 % 2) * 3 + (j0 % 3);                   // vertical edge: 4..9
+      } else {
+        g = 10 + (i0 % 3) * 2 + (j0 % 2);                  // horizontal edge: 10..15
+      }
+      groups[g].push(h);
+    }
+    return groups;
+  }
+  function assertColoring(groups, touchOf, np) {
+    const seen = new Uint8Array(np);
+    for (const g of groups) {
+      seen.fill(0);
+      for (const c of g) {
+        for (const p of touchOf(c)) {
+          if (seen[p]) throw new Error('gpu coloring conflict');
+          seen[p] = 1;
+        }
+      }
+    }
+  }
+
+  // --------------------------------------------------------------- shaders
+  const COMMON = /* wgsl */`
+struct Params {
+  np: u32, ne: u32, nh: u32, ntri: u32,
+  n: u32, pinIdx: u32, gridDim: u32, pad0: u32,
+  dt: f32, gravity: f32, dragK: f32, settleK: f32,
+  nDragK: f32, alphaBendT: f32, alphaBendSoftT: f32, bendDamp: f32,
+  muS: f32, muK: f32, muPaper: f32, selfR: f32,
+  yieldA: f32, plasticRate: f32, maxT0: f32, creaseMark: f32,
+  cell: f32, gridOrg: f32, pad1: f32, pad2: f32,
+};
+struct Sub {
+  counts: vec4<u32>,             // nGrab, nCol, pinA, _
+  grabs: array<vec4<f32>, ${MAXGRAB}>,   // xyz target, w = idx*2 + soft
+  cols: array<vec4<f32>, ${MAXCOL * 2}>, // pairs: a.xyz | r (neg => fingertip), b.xyz | 0
+};
+fn wrapPi(a: f32) -> f32 {
+  var x = (a + 3.14159265) % 6.2831853;
+  if (x < 0.0) { x = x + 6.2831853; }
+  return x - 3.14159265;
+}
+`;
+
+  const SH_NORMALS = COMMON + /* wgsl */`
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> adj: array<i32>;   // NP*12: 6 pairs
+@group(0) @binding(3) var<storage, read_write> nrm: array<vec4<f32>>;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= P.np) { return; }
+  let p0 = pos[i].xyz;
+  var nsum = vec3<f32>(0.0);
+  for (var k = 0u; k < 6u; k++) {
+    let a = adj[i * 12u + k * 2u];
+    if (a < 0) { break; }
+    let b = adj[i * 12u + k * 2u + 1u];
+    nsum += cross(pos[u32(a)].xyz - p0, pos[u32(b)].xyz - p0);
+  }
+  nrm[i] = vec4<f32>(nsum, 0.0);
+}
+`;
+
+  const SH_INTEGRATE = COMMON + /* wgsl */`
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> prev: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read_write> vel: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read> nrm: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> baseW: array<f32>;
+@group(0) @binding(6) var<storage, read_write> liveW: array<f32>;
+@group(1) @binding(0) var<uniform> S: Sub;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= P.np) { return; }
+  var w = baseW[i];
+  if (S.counts.z == 1u && i == P.pinIdx) { w = 0.0; }
+  var softTarget = vec4<f32>(0.0, 0.0, 0.0, -1.0);
+  var hardTarget = vec4<f32>(0.0, 0.0, 0.0, -1.0);
+  for (var g = 0u; g < S.counts.x; g++) {
+    let rec = S.grabs[g];
+    let enc = u32(rec.w);
+    if ((enc >> 1u) == i) {
+      if ((enc & 1u) == 1u) { softTarget = vec4<f32>(rec.xyz, 1.0); }
+      else { hardTarget = vec4<f32>(rec.xyz, 1.0); w = 0.0; }
+    }
+  }
+  liveW[i] = w;
+  var p = pos[i].xyz;
+  prev[i] = vec4<f32>(p, 0.0);
+  var v = vel[i].xyz;
+  if (w > 0.0) {
+    v.y -= P.gravity * P.dt;
+    var d = P.dragK;
+    if (p.y < 0.01) { d *= P.settleK; }
+    v *= d;
+    let nv = nrm[i].xyz;
+    let nsq = dot(nv, nv);
+    if (nsq > 1e-16) {
+      let vn = dot(v, nv) / nsq * P.nDragK;
+      v -= vn * nv;
+    }
+    p += v * P.dt;
+  }
+  if (S.counts.z == 1u && i == P.pinIdx) { p = vec3<f32>(0.0); }
+  if (hardTarget.w > 0.0) { p = hardTarget.xyz; }
+  if (softTarget.w > 0.0) { p += (softTarget.xyz - p) * 0.3; }
+  vel[i] = vec4<f32>(v, 0.0);
+  pos[i] = vec4<f32>(p, 0.0);
+}
+`;
+
+  const SH_DIST = COMMON + /* wgsl */`
+struct Edge { a: u32, b: u32, rest: f32, alphaT: f32 };
+struct Range { off: u32, cnt: u32, pad0: u32, pad1: u32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> liveW: array<f32>;
+@group(0) @binding(3) var<storage, read> edges: array<Edge>;
+@group(1) @binding(0) var<uniform> R: Range;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= R.cnt) { return; }
+  let e = edges[R.off + gid.x];
+  let wa = liveW[e.a];
+  let wb = liveW[e.b];
+  let ws = wa + wb;
+  if (ws == 0.0) { return; }
+  var d = pos[e.b].xyz - pos[e.a].xyz;
+  let len = length(d);
+  if (len < 1e-9) { return; }
+  let C = len - e.rest;
+  let dl = -C / (ws + e.alphaT);
+  d *= dl / len;
+  pos[e.a] = vec4<f32>(pos[e.a].xyz - wa * d, 0.0);
+  pos[e.b] = vec4<f32>(pos[e.b].xyz + wb * d, 0.0);
+}
+`;
+
+  const SH_HINGE = COMMON + /* wgsl */`
+struct Hinge { e0: u32, e1: u32, w0: u32, w1: u32, theta0: f32, thC: f32, soft: u32, pad: u32 };
+struct Range { off: u32, cnt: u32, pad0: u32, pad1: u32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> prev: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read> liveW: array<f32>;
+@group(0) @binding(4) var<storage, read_write> hinges: array<Hinge>;
+@group(1) @binding(0) var<uniform> R: Range;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= R.cnt) { return; }
+  let hi = R.off + gid.x;
+  let h = hinges[hi];
+  let x0 = pos[h.e0].xyz;
+  let e = pos[h.e1].xyz - x0;
+  let a = pos[h.w0].xyz - x0;
+  let b = pos[h.w1].xyz - x0;
+  let n1 = cross(e, a);
+  let n2 = cross(b, e);
+  let elen = length(e);
+  let n1sq = dot(n1, n1);
+  let n2sq = dot(n2, n2);
+  if (elen < 1e-6 || n1sq < 1e-10 || n2sq < 1e-10) { return; }
+  let sinT = dot(cross(n1, n2), e) / elen;
+  let cosT = dot(n1, n2);
+  let thRaw = atan2(sinT, cosT);
+  let th = h.thC + wrapPi(thRaw - h.thC);
+  hinges[hi].thC = th;
+  let C = th - h.theta0;
+  let s2 = -elen / n1sq;
+  let s3 = -elen / n2sq;
+  let g2 = s2 * n1;
+  let g3 = s3 * n2;
+  let inv_ee = 1.0 / (elen * elen);
+  let a2 = dot(a, e) * inv_ee - 1.0;
+  let a3 = dot(b, e) * inv_ee - 1.0;
+  let g0 = a2 * g2 + a3 * g3;
+  let g1 = -(1.0 + a2) * g2 - (1.0 + a3) * g3;
+  let w0 = liveW[h.e0]; let w1 = liveW[h.e1];
+  let w2 = liveW[h.w0]; let w3 = liveW[h.w1];
+  var denom = w0 * dot(g0, g0) + w1 * dot(g1, g1) + w2 * dot(g2, g2) + w3 * dot(g3, g3);
+  var alphaT = P.alphaBendT;
+  if (h.soft == 1u) { alphaT = P.alphaBendSoftT; }
+  denom = denom * (1.0 + P.bendDamp) + alphaT;
+  if (denom < 1e-10) { return; }
+  var Cdot = dot(g0, pos[h.e0].xyz - prev[h.e0].xyz);
+  Cdot += dot(g1, pos[h.e1].xyz - prev[h.e1].xyz);
+  Cdot += dot(g2, pos[h.w0].xyz - prev[h.w0].xyz);
+  Cdot += dot(g3, pos[h.w1].xyz - prev[h.w1].xyz);
+  let dl = (-C - P.bendDamp * Cdot) / denom;
+  pos[h.e0] = vec4<f32>(pos[h.e0].xyz + w0 * dl * g0, 0.0);
+  pos[h.e1] = vec4<f32>(pos[h.e1].xyz + w1 * dl * g1, 0.0);
+  pos[h.w0] = vec4<f32>(pos[h.w0].xyz + w2 * dl * g2, 0.0);
+  pos[h.w1] = vec4<f32>(pos[h.w1].xyz + w3 * dl * g3, 0.0);
+}
+`;
+
+  const SH_COLLIDERS = COMMON + /* wgsl */`
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> liveW: array<f32>;
+@group(1) @binding(0) var<uniform> S: Sub;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= P.np) { return; }
+  if (liveW[i] == 0.0) { return; }
+  var p = pos[i].xyz;
+  for (var c = 0u; c < S.counts.y; c++) {
+    let A = S.cols[c * 2u];
+    let B = S.cols[c * 2u + 1u];
+    let r = abs(A.w) + 0.004;
+    let ab = B.xyz - A.xyz;
+    var d = p - A.xyz;
+    let ab2 = dot(ab, ab);
+    if (ab2 > 1e-9) {
+      let t = clamp(dot(d, ab) / ab2, 0.0, 1.0);
+      d -= t * ab;
+    }
+    let d2 = dot(d, d);
+    if (d2 < r * r && d2 > 1e-12) {
+      let dl = sqrt(d2);
+      p += d * ((r - dl) / dl);
+    }
+  }
+  pos[i] = vec4<f32>(p, 0.0);
+}
+`;
+
+  const SH_CLEARHEADS = COMMON + /* wgsl */`
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> heads: array<atomic<i32>>;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let n = P.gridDim * P.gridDim;
+  if (gid.x >= n) { return; }
+  atomicStore(&heads[gid.x], 0);
+}
+`;
+
+  const SH_SELFBUILD = COMMON + /* wgsl */`
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> heads: array<atomic<i32>>;
+@group(0) @binding(3) var<storage, read_write> nxt: array<i32>;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= P.np) { return; }
+  let p = pos[i].xyz;
+  let gx = clamp(u32((p.x - P.gridOrg) / P.cell), 0u, P.gridDim - 1u);
+  let gz = clamp(u32((p.z - P.gridOrg) / P.cell), 0u, P.gridDim - 1u);
+  let cellId = gz * P.gridDim + gx;
+  let old = atomicExchange(&heads[cellId], i32(i) + 1);
+  nxt[i] = old;
+}
+`;
+
+  const SH_SELFQUERY = COMMON + /* wgsl */`
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> prev: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read> liveW: array<f32>;
+@group(0) @binding(4) var<storage, read> heads: array<i32>;
+@group(0) @binding(5) var<storage, read> nxt: array<i32>;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= P.np) { return; }
+  let wi = liveW[i];
+  if (wi == 0.0) { return; }
+  var p = pos[i].xyz;
+  let r = P.selfR;
+  let ii = i32(i / P.n);
+  let ji = i32(i % P.n);
+  let gx0 = i32((p.x - P.gridOrg) / P.cell);
+  let gz0 = i32((p.z - P.gridOrg) / P.cell);
+  let gd = i32(P.gridDim);
+  var dp = vec3<f32>(0.0);
+  for (var dz = -1; dz <= 1; dz++) {
+    for (var dx = -1; dx <= 1; dx++) {
+      let gx = gx0 + dx;
+      let gz = gz0 + dz;
+      if (gx < 0 || gx >= gd || gz < 0 || gz >= gd) { continue; }
+      var jn = heads[gz * gd + gx];
+      loop {
+        if (jn == 0) { break; }
+        let j = u32(jn - 1);
+        jn = nxt[j];
+        if (j == i) { continue; }
+        // grid neighbors within the 8-neighborhood are constraint partners
+        let dji = abs(i32(j / P.n) - ii);
+        let djj = abs(i32(j % P.n) - ji);
+        if (dji <= 1 && djj <= 1) { continue; }
+        let q = pos[j].xyz;
+        var d = q - (p + dp);
+        let d2 = dot(d, d);
+        if (d2 >= r * r || d2 < 1e-12) { continue; }
+        let wj = liveW[j];
+        let ws = wi + wj;
+        let dl = sqrt(d2);
+        // own share of the (under-relaxed) symmetric projection
+        let corr = 0.8 * (r - dl) / dl * (wi / ws);
+        dp -= corr * d;
+        // layer friction: own share of the relative tangential slip damp
+        let nrm2 = d / dl;
+        var slip = ((p + dp) - prev[i].xyz) - (q - prev[j].xyz);
+        slip -= dot(slip, nrm2) * nrm2;
+        let stl = length(slip);
+        if (stl > 1e-9) {
+          let f = 0.5 * min(1.0, P.muPaper * (r - dl) / stl) * (wi / ws);
+          dp -= f * slip;
+        }
+      }
+    }
+  }
+  pos[i] = vec4<f32>(p + dp, 0.0);
+}
+`;
+
+  const SH_GROUND = COMMON + /* wgsl */`
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> prev: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read_write> vel: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read> liveW: array<f32>;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= P.np) { return; }
+  var p = pos[i].xyz;
+  if (liveW[i] == 0.0) {
+    if (p.y < 0.0) { p.y = 0.0; }
+  } else if (p.y < 0.0) {
+    let depth = -p.y;
+    p.y = 0.0;
+    let t = vec2<f32>(p.x - prev[i].x, p.z - prev[i].z);
+    let tl = length(t);
+    if (tl > 1e-9) {
+      if (tl < P.muS * depth) {
+        p.x = prev[i].x; p.z = prev[i].z;
+      } else {
+        let drop = min(tl, P.muK * depth);
+        let f = (tl - drop) / tl;
+        p.x = prev[i].x + t.x * f;
+        p.z = prev[i].z + t.y * f;
+      }
+    }
+  }
+  pos[i] = vec4<f32>(p, 0.0);
+  vel[i] = vec4<f32>((p - prev[i].xyz) / P.dt, 0.0);
+}
+`;
+
+  const SH_PLASTIC = COMMON + /* wgsl */`
+struct Hinge { e0: u32, e1: u32, w0: u32, w1: u32, theta0: f32, thC: f32, soft: u32, pad: u32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> hinges: array<Hinge>;
+@group(1) @binding(0) var<uniform> S: Sub;
+@compute @workgroup_size(${WG})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= P.nh) { return; }
+  let h = hinges[gid.x];
+  let mid = (pos[h.e0].xyz + pos[h.e1].xyz) * 0.5;
+  var pressed = false;
+  for (var c = 0u; c < S.counts.y; c++) {
+    let A = S.cols[c * 2u];
+    if (A.w >= 0.0) { continue; }           // only fingertip capsules gate
+    let B = S.cols[c * 2u + 1u];
+    let fr = -A.w + 0.05;
+    let ab = B.xyz - A.xyz;
+    var d = mid - A.xyz;
+    let ab2 = dot(ab, ab);
+    if (ab2 > 1e-9) {
+      let t = clamp(dot(d, ab) / ab2, 0.0, 1.0);
+      d -= t * ab;
+    }
+    if (dot(d, d) <= fr * fr) { pressed = true; break; }
+  }
+  if (!pressed) { return; }
+  let x0 = pos[h.e0].xyz;
+  let e = pos[h.e1].xyz - x0;
+  let a = pos[h.w0].xyz - x0;
+  let b = pos[h.w1].xyz - x0;
+  let n1 = cross(e, a);
+  let n2 = cross(b, e);
+  let elen = length(e);
+  if (elen < 1e-6 || dot(n1, n1) < 1e-10 || dot(n2, n2) < 1e-10) { return; }
+  let thRaw = atan2(dot(cross(n1, n2), e) / elen, dot(n1, n2));
+  let th = h.thC + wrapPi(thRaw - h.thC);
+  let ex = th - h.theta0;
+  if (abs(ex) > P.yieldA) {
+    let s = sign(ex);
+    var t0 = h.theta0 + P.plasticRate * (ex - s * P.yieldA);
+    t0 = clamp(t0, -P.maxT0, P.maxT0);
+    hinges[gid.x].theta0 = t0;
+    if (abs(t0) > P.creaseMark) { hinges[gid.x].soft = 1u; }
+  }
+}
+`;
+
+  // ---------------------------------------------------------------- create
+  async function create(paper, PARAMS) {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error('WebGPU: no adapter');
+    const device = await adapter.requestDevice();
+    device.addEventListener('uncapturederror', (e) => {
+      console.error('[gpu.js] uncaptured WebGPU error:', e.error.message);
+    });
+    const NP = paper.NP, N = paper.N;
+
+    const kRes = (N - 1) / 20;
+    const sub = Math.min(MAXSUB, Math.max(8, Math.round(PARAMS.substeps * kRes * kRes)));
+
+    // --- constraint coloring
+    const edgeGroups = colorEdges(paper);
+    const hingeGroups = colorHinges(paper);
+    assertColoring(edgeGroups, e => [e.a, e.b], NP);
+    assertColoring(hingeGroups, h => [h.e0, h.e1, h.w0, h.w1], NP);
+    const edgesSorted = edgeGroups.flat();
+    const hingesSorted = hingeGroups.flat();
+    const edgeRanges = []; const hingeRanges = [];
+    { let off = 0; for (const g of edgeGroups) { edgeRanges.push([off, g.length]); off += g.length; } }
+    { let off = 0; for (const g of hingeGroups) { hingeRanges.push([off, g.length]); off += g.length; } }
+
+    // --- buffers
+    const B = (size, usage) => device.createBuffer({ size, usage });
+    const f32PerVec = 4;
+    const posBuf = B(NP * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    const prevBuf = B(NP * 16, GPUBufferUsage.STORAGE);
+    const velBuf = B(NP * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const nrmBuf = B(NP * 16, GPUBufferUsage.STORAGE);
+    const baseWBuf = B(NP * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const liveWBuf = B(NP * 4, GPUBufferUsage.STORAGE);
+    const adjBuf = B(NP * 12 * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const edgeBuf = B(Math.max(1, edgesSorted.length) * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const hingeBuf = B(Math.max(1, hingesSorted.length) * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    const headsBuf = B(GRID_DIM * GRID_DIM * 4, GPUBufferUsage.STORAGE);
+    const nxtBuf = B(NP * 4, GPUBufferUsage.STORAGE);
+    const paramsBuf = B(112, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    const scriptBuf = B(MAXSUB * SUB_STRIDE, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    const rangeBuf = B(32 * 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    const stagePos = B(NP * 16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+    const stageHinge = B(Math.max(1, hingesSorted.length) * 32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+
+    // --- initial uploads
+    {
+      const pf = new Float32Array(NP * 4);
+      for (let i = 0; i < NP; i++) {
+        pf[i * 4] = paper.pos[i * 3];
+        pf[i * 4 + 1] = paper.pos[i * 3 + 1];
+        pf[i * 4 + 2] = paper.pos[i * 3 + 2];
+      }
+      device.queue.writeBuffer(posBuf, 0, pf);
+      device.queue.writeBuffer(velBuf, 0, new Float32Array(NP * 4));
+      device.queue.writeBuffer(baseWBuf, 0, new Float32Array(paper.baseInvMass));
+    }
+    {
+      // per-vertex adjacent triangles as ordered vertex pairs
+      const adj = new Int32Array(NP * 12).fill(-1);
+      const cnt = new Int32Array(NP);
+      const tris = paper.tris;
+      for (let t = 0; t < tris.length; t += 3) {
+        const vs = [tris[t], tris[t + 1], tris[t + 2]];
+        for (let k = 0; k < 3; k++) {
+          const v = vs[k];
+          if (cnt[v] < 6) {
+            adj[v * 12 + cnt[v] * 2] = vs[(k + 1) % 3];
+            adj[v * 12 + cnt[v] * 2 + 1] = vs[(k + 2) % 3];
+            cnt[v]++;
+          }
+        }
+      }
+      device.queue.writeBuffer(adjBuf, 0, adj);
+    }
+    {
+      const ed = new ArrayBuffer(Math.max(1, edgesSorted.length) * 16);
+      const u = new Uint32Array(ed), f = new Float32Array(ed);
+      const dtSub = (1 / 60) / sub;
+      edgesSorted.forEach((e, i) => {
+        u[i * 4] = e.a; u[i * 4 + 1] = e.b;
+        f[i * 4 + 2] = e.rest;
+        f[i * 4 + 3] = e.alpha / (dtSub * dtSub);
+      });
+      device.queue.writeBuffer(edgeBuf, 0, ed);
+    }
+    const writeHinges = () => {
+      const hd = new ArrayBuffer(Math.max(1, hingesSorted.length) * 32);
+      const u = new Uint32Array(hd), f = new Float32Array(hd);
+      hingesSorted.forEach((h, i) => {
+        u[i * 8] = h.e0; u[i * 8 + 1] = h.e1; u[i * 8 + 2] = h.w0; u[i * 8 + 3] = h.w1;
+        f[i * 8 + 4] = h.theta0; f[i * 8 + 5] = h.thC;
+        u[i * 8 + 6] = h.soft ? 1 : 0;
+      });
+      device.queue.writeBuffer(hingeBuf, 0, hd);
+    };
+    writeHinges();
+    {
+      const r = new Uint32Array(32 * 64);
+      edgeRanges.forEach(([off, cnt], i) => { r[i * 64] = off; r[i * 64 + 1] = cnt; });
+      hingeRanges.forEach(([off, cnt], i) => { r[(8 + i) * 64] = off; r[(8 + i) * 64 + 1] = cnt; });
+      device.queue.writeBuffer(rangeBuf, 0, r);
+    }
+    {
+      const dtSub = (1 / 60) / sub;
+      const ab = new ArrayBuffer(112);
+      const u = new Uint32Array(ab), f = new Float32Array(ab);
+      u[0] = NP; u[1] = edgesSorted.length; u[2] = hingesSorted.length; u[3] = paper.tris.length / 3;
+      u[4] = N; u[5] = paper.corners.A; u[6] = GRID_DIM;
+      f[8] = dtSub; f[9] = PARAMS.gravity;
+      f[10] = Math.exp(-PARAMS.airDrag * dtSub);
+      f[11] = Math.exp(-PARAMS.settleDrag * dtSub);
+      f[12] = 1 - Math.exp(-PARAMS.normalDrag * dtSub);
+      f[13] = PARAMS.alphaBend / (dtSub * dtSub);
+      f[14] = (PARAMS.alphaBend * PARAMS.creaseSoften) / (dtSub * dtSub);
+      f[15] = PARAMS.bendDamp;
+      f[16] = PARAMS.muStatic; f[17] = PARAMS.muKinetic; f[18] = PARAMS.muPaper; f[19] = PARAMS.selfR;
+      f[20] = PARAMS.yieldK * paper.H; f[21] = PARAMS.plasticRate; f[22] = PARAMS.maxTheta0; f[23] = PARAMS.creaseMark;
+      f[24] = GRID_SPAN / GRID_DIM; f[25] = GRID_ORG;
+      device.queue.writeBuffer(paramsBuf, 0, ab);
+    }
+
+    // --- pipelines with explicit layouts (dynamic uniforms need them)
+    const mkLayout = (entries) => device.createBindGroupLayout({ entries });
+    const ST = (binding, type) => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type } });
+    const layoutMain = {
+      normals: mkLayout([ST(0, 'uniform'), ST(1, 'read-only-storage'), ST(2, 'read-only-storage'), ST(3, 'storage')]),
+      integrate: mkLayout([ST(0, 'uniform'), ST(1, 'storage'), ST(2, 'storage'), ST(3, 'storage'), ST(4, 'read-only-storage'), ST(5, 'read-only-storage'), ST(6, 'storage')]),
+      dist: mkLayout([ST(0, 'uniform'), ST(1, 'storage'), ST(2, 'read-only-storage'), ST(3, 'read-only-storage')]),
+      hinge: mkLayout([ST(0, 'uniform'), ST(1, 'storage'), ST(2, 'read-only-storage'), ST(3, 'read-only-storage'), ST(4, 'storage')]),
+      colliders: mkLayout([ST(0, 'uniform'), ST(1, 'storage'), ST(2, 'read-only-storage')]),
+      clearHeads: mkLayout([ST(0, 'uniform'), ST(1, 'storage')]),
+      selfBuild: mkLayout([ST(0, 'uniform'), ST(1, 'read-only-storage'), ST(2, 'storage'), ST(3, 'storage')]),
+      selfQuery: mkLayout([ST(0, 'uniform'), ST(1, 'storage'), ST(2, 'read-only-storage'), ST(3, 'read-only-storage'), ST(4, 'read-only-storage'), ST(5, 'read-only-storage')]),
+      ground: mkLayout([ST(0, 'uniform'), ST(1, 'storage'), ST(2, 'read-only-storage'), ST(3, 'storage'), ST(4, 'read-only-storage')]),
+      plastic: mkLayout([ST(0, 'uniform'), ST(1, 'read-only-storage'), ST(2, 'storage')]),
+    };
+    const subLayout = mkLayout([{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true } }]);
+    const rangeLayout = subLayout; // same shape
+
+    const mkPipe = (code, main, extra) => device.createComputePipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: extra ? [main, extra] : [main] }),
+      compute: { module: device.createShaderModule({ code }), entryPoint: 'main' },
+    });
+    const pipes = {
+      normals: mkPipe(SH_NORMALS, layoutMain.normals),
+      integrate: mkPipe(SH_INTEGRATE, layoutMain.integrate, subLayout),
+      dist: mkPipe(SH_DIST, layoutMain.dist, rangeLayout),
+      hinge: mkPipe(SH_HINGE, layoutMain.hinge, rangeLayout),
+      colliders: mkPipe(SH_COLLIDERS, layoutMain.colliders, subLayout),
+      clearHeads: mkPipe(SH_CLEARHEADS, layoutMain.clearHeads),
+      selfBuild: mkPipe(SH_SELFBUILD, layoutMain.selfBuild),
+      selfQuery: mkPipe(SH_SELFQUERY, layoutMain.selfQuery),
+      ground: mkPipe(SH_GROUND, layoutMain.ground),
+      plastic: mkPipe(SH_PLASTIC, layoutMain.plastic, subLayout),
+    };
+    const bg = (layout, bufs) => device.createBindGroup({
+      layout, entries: bufs.map((b, i) => ({ binding: i, resource: { buffer: b } })),
+    });
+    const groups = {
+      normals: bg(layoutMain.normals, [paramsBuf, posBuf, adjBuf, nrmBuf]),
+      integrate: bg(layoutMain.integrate, [paramsBuf, posBuf, prevBuf, velBuf, nrmBuf, baseWBuf, liveWBuf]),
+      dist: bg(layoutMain.dist, [paramsBuf, posBuf, liveWBuf, edgeBuf]),
+      hinge: bg(layoutMain.hinge, [paramsBuf, posBuf, prevBuf, liveWBuf, hingeBuf]),
+      colliders: bg(layoutMain.colliders, [paramsBuf, posBuf, liveWBuf]),
+      clearHeads: bg(layoutMain.clearHeads, [paramsBuf, headsBuf]),
+      selfBuild: bg(layoutMain.selfBuild, [paramsBuf, posBuf, headsBuf, nxtBuf]),
+      selfQuery: bg(layoutMain.selfQuery, [paramsBuf, posBuf, prevBuf, liveWBuf, headsBuf, nxtBuf]),
+      ground: bg(layoutMain.ground, [paramsBuf, posBuf, prevBuf, velBuf, liveWBuf]),
+      plastic: bg(layoutMain.plastic, [paramsBuf, posBuf, hingeBuf]),
+    };
+    const subGroup = device.createBindGroup({
+      layout: subLayout,
+      entries: [{ binding: 0, resource: { buffer: scriptBuf, size: SUB_STRIDE } }],
+    });
+    const rangeGroup = device.createBindGroup({
+      layout: rangeLayout,
+      entries: [{ binding: 0, resource: { buffer: rangeBuf, size: 16 } }],
+    });
+
+    // --- per-frame script building (mirrors sim.js collider/grab assembly)
+    const scriptArr = new ArrayBuffer(MAXSUB * SUB_STRIDE);
+    const scriptU = new Uint32Array(scriptArr);
+    const scriptF = new Float32Array(scriptArr);
+    const matIdx = (u, v) => Math.round(v / paper.H) * N + Math.round(u / paper.H);
+    function packWorld(s, world) {
+      const base = (s * SUB_STRIDE) / 4;
+      const grabs = world.grabs || [];
+      const fingers = world.fingers || (world.finger ? [world.finger] : []);
+      let nCol = 0;
+      const colBase = base + 4 + MAXGRAB * 4;
+      const addCol = (ax, ay, az, bx, by, bz, r, tip) => {
+        if (nCol >= MAXCOL) return;
+        const o = colBase + nCol * 8;
+        scriptF[o] = ax; scriptF[o + 1] = ay; scriptF[o + 2] = az; scriptF[o + 3] = tip ? -r : r;
+        scriptF[o + 4] = bx; scriptF[o + 5] = by; scriptF[o + 6] = bz; scriptF[o + 7] = 0;
+        nCol++;
+      };
+      for (const f of fingers) {
+        const hl = f.hl || 0, fx = f.ax || [1, 0, 0];
+        addCol(f.c[0] - fx[0] * hl, f.c[1] - fx[1] * hl, f.c[2] - fx[2] * hl,
+          f.c[0] + fx[0] * hl, f.c[1] + fx[1] * hl, f.c[2] + fx[2] * hl, f.r, true);
+        addCol(f.c[0], f.c[1], f.c[2], f.c[0], f.c[1] + PARAMS.stemLen, f.c[2], PARAMS.fingerStemR, false);
+      }
+      if (world.pinA) {
+        addCol(0, PARAMS.padLift, 0, 0, PARAMS.padLift, 0, PARAMS.padR, false);
+        addCol(0, PARAMS.padLift, 0, -0.26, PARAMS.padLift + 0.56, -0.26, PARAMS.stemR, false);
+      }
+      for (const g of grabs) {
+        const gy = g.pos[1] + PARAMS.padLift;
+        addCol(g.pos[0], gy, g.pos[2], g.pos[0], gy, g.pos[2], PARAMS.padR, false);
+      }
+      const ng = Math.min(grabs.length, MAXGRAB);
+      for (let g = 0; g < ng; g++) {
+        const o = base + 4 + g * 4;
+        const gr = grabs[g];
+        scriptF[o] = gr.pos[0]; scriptF[o + 1] = gr.pos[1]; scriptF[o + 2] = gr.pos[2];
+        scriptU[o + 3] = 0; // cleared; write encoded idx as float below
+        scriptF[o + 3] = matIdx(gr.at[0], gr.at[1]) * 2 + (gr.soft ? 1 : 0);
+      }
+      scriptU[base] = ng;
+      scriptU[base + 1] = nCol;
+      scriptU[base + 2] = world.pinA ? 1 : 0;
+    }
+
+    const posRead = new Float32Array(NP * 4);
+    const hingeReadAB = new ArrayBuffer(Math.max(1, hingesSorted.length) * 32);
+    const disp = (pass, pipe, group, count, dyn) => {
+      pass.setPipeline(pipe);
+      pass.setBindGroup(0, group);
+      if (dyn) pass.setBindGroup(1, dyn.g, [dyn.o]);
+      pass.dispatchWorkgroups(Math.ceil(count / WG));
+    };
+
+    let destroyed = false;
+    async function frame(worldAt, dtFrame) {
+      if (destroyed) return;
+      // build the substep script on CPU
+      const dtSub = dtFrame / sub;
+      for (let s = 0; s < sub; s++) packWorld(s, worldAt(paper.time + dtSub * (s + 1)));
+      device.queue.writeBuffer(scriptBuf, 0, scriptArr, 0, sub * SUB_STRIDE);
+
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginComputePass();
+      for (let s = 0; s < sub; s++) {
+        const subDyn = { g: subGroup, o: s * SUB_STRIDE };
+        disp(pass, pipes.normals, groups.normals, NP);
+        disp(pass, pipes.integrate, groups.integrate, NP, subDyn);
+        for (let g = 0; g < 8; g++) {
+          if (!edgeRanges[g][1]) continue;
+          disp(pass, pipes.dist, groups.dist, edgeRanges[g][1], { g: rangeGroup, o: g * 256 });
+        }
+        for (let g = 0; g < 16; g++) {
+          if (!hingeRanges[g][1]) continue;
+          disp(pass, pipes.hinge, groups.hinge, hingeRanges[g][1], { g: rangeGroup, o: (8 + g) * 256 });
+        }
+        disp(pass, pipes.colliders, groups.colliders, NP, subDyn);
+        disp(pass, pipes.clearHeads, groups.clearHeads, GRID_DIM * GRID_DIM);
+        disp(pass, pipes.selfBuild, groups.selfBuild, NP);
+        disp(pass, pipes.selfQuery, groups.selfQuery, NP);
+        disp(pass, pipes.ground, groups.ground, NP);
+      }
+      // plasticity, gated by the last substep's fingers
+      disp(pass, pipes.plastic, groups.plastic, hingesSorted.length, { g: subGroup, o: (sub - 1) * SUB_STRIDE });
+      pass.end();
+      enc.copyBufferToBuffer(posBuf, 0, stagePos, 0, NP * 16);
+      enc.copyBufferToBuffer(hingeBuf, 0, stageHinge, 0, hingeReadAB.byteLength);
+      device.queue.submit([enc.finish()]);
+
+      await stagePos.mapAsync(GPUMapMode.READ);
+      posRead.set(new Float32Array(stagePos.getMappedRange()));
+      stagePos.unmap();
+      await stageHinge.mapAsync(GPUMapMode.READ);
+      new Uint8Array(hingeReadAB).set(new Uint8Array(stageHinge.getMappedRange()));
+      stageHinge.unmap();
+
+      // mirror into the CPU paper object (renderer + UI read from it)
+      for (let i = 0; i < NP; i++) {
+        paper.pos[i * 3] = posRead[i * 4];
+        paper.pos[i * 3 + 1] = posRead[i * 4 + 1];
+        paper.pos[i * 3 + 2] = posRead[i * 4 + 2];
+      }
+      const hf = new Float32Array(hingeReadAB);
+      const hu = new Uint32Array(hingeReadAB);
+      hingesSorted.forEach((h, i) => {
+        h.theta0 = hf[i * 8 + 4];
+        h.thC = hf[i * 8 + 5];
+        h.soft = hu[i * 8 + 6] === 1;
+      });
+      paper.time += dtFrame;
+    }
+
+    return {
+      substeps: sub,
+      frame,
+      _dbg: { device, posBuf, stagePos, NP },
+      destroy() {
+        destroyed = true;
+        for (const b of [posBuf, prevBuf, velBuf, nrmBuf, baseWBuf, liveWBuf, adjBuf, edgeBuf,
+          hingeBuf, headsBuf, nxtBuf, paramsBuf, scriptBuf, rangeBuf, stagePos, stageHinge]) b.destroy();
+        device.destroy();
+      },
+    };
+  }
+
+  return { available, create };
+});
+
+</script>
+<script>
 (() => {
   'use strict';
   // ------------------------------------------------------------- state
@@ -1177,6 +2009,8 @@
   let SC = SIM.getScenarios();
   let paper = SIM.makePaper();
   let running = !reduced;
+  // compute backend: CPU by default; GPU when chosen and available
+  let gpuWanted = false, gpuBackend = null, gpuBusy = false, gpuToken = 0, gpuErr = null;
   let speed = 1;
   let slowTick = 0;
   let doneAnnounced = false;
@@ -1206,7 +2040,7 @@
       shadow: 'rgba(26,32,40,0.13)',
       paperFront: [252, 250, 244], paperBack: [74, 107, 158],
       scar: 'rgba(96,58,32,0.5)', scarBack: 'rgba(24,34,54,0.5)',
-      steel: [104, 116, 130], stem: 'rgba(104,116,130,0.85)',
+      steel: [122, 134, 148], stem: 'rgba(104,116,130,0.85)',
       amb: 0.52, dif: 0.48,
     };
   }
@@ -1290,12 +2124,15 @@
       ctx.moveTo(p2a[0], p2a[1]); ctx.lineTo(p2b[0], p2b[1]); ctx.lineTo(p2c[0], p2c[1]);
     }
     ctx.fill();
-    if (world && world.finger) {
-      const c = world.finger.c;
-      if (c[1] < 0.55 && proj(c[0] + LDIR[0] * c[1], 0.001, c[2] + LDIR[2] * c[1], p2a)) {
-        ctx.beginPath();
-        ctx.arc(p2a[0], p2a[1], FL * world.finger.r / p2a[2], 0, 6.2832);
-        ctx.fill();
+    if (world) {
+      const fingersSh = world.fingers || (world.finger ? [world.finger] : []);
+      for (const f of fingersSh) {
+        const c = f.c;
+        if (c[1] < 0.55 && proj(c[0] + LDIR[0] * c[1], 0.001, c[2] + LDIR[2] * c[1], p2a)) {
+          ctx.beginPath();
+          ctx.arc(p2a[0], p2a[1], FL * f.r / p2a[2], 0, 6.2832);
+          ctx.fill();
+        }
       }
     }
 
@@ -1363,16 +2200,27 @@
         w: Math.max(1, FL * 0.007 / p2a[2]),
       });
     }
-    // actuators (drawn with the same geometry the physics collides against)
+    // actuators as real 3D meshes (same geometry the physics collides against),
+    // so paper and hardware occlude each other per-triangle
     if (world) {
       const PR = SIM.PARAMS.padR, PL = SIM.PARAMS.padLift;
-      if (world.pinA) pushBall(0, PL, 0, PR, pal, [-0.26, PL + 0.56, -0.26]);
-      if (world.grabs) {
-        for (const g of world.grabs) pushBall(g.pos[0], g.pos[1] + PL, g.pos[2], PR, pal, null);
+      const SR = SIM.PARAMS.stemR, FSR = SIM.PARAMS.fingerStemR, SL = SIM.PARAMS.stemLen;
+      if (world.pinA) {
+        pushSphere(0, PL, 0, PR, pal);
+        pushCyl([0, PL, 0], [-0.26, PL + 0.56, -0.26], SR, pal);
       }
-      if (world.finger) {
-        const f = world.finger, hl = f.hl || 0, ax = f.ax || [1, 0, 0];
-        pushCapsule(f.c, ax, hl, f.r, pal);
+      if (world.grabs) {
+        for (const g of world.grabs) pushSphere(g.pos[0], g.pos[1] + PL, g.pos[2], PR, pal);
+      }
+      const fingers = world.fingers || (world.finger ? [world.finger] : []);
+      for (const f of fingers) {
+        const hl = f.hl || 0, ax = f.ax || [1, 0, 0];
+        const e1 = [f.c[0] - ax[0] * hl, f.c[1] - ax[1] * hl, f.c[2] - ax[2] * hl];
+        const e2 = [f.c[0] + ax[0] * hl, f.c[1] + ax[1] * hl, f.c[2] + ax[2] * hl];
+        pushCyl(e1, e2, f.r, pal);
+        pushSphere(e1[0], e1[1], e1[2], f.r, pal);
+        pushSphere(e2[0], e2[1], e2[2], f.r, pal);
+        pushCyl(f.c, [f.c[0], f.c[1] + SL, f.c[2]], FSR, pal);
       }
     }
 
@@ -1388,57 +2236,91 @@
         ctx.strokeStyle = it.col; ctx.lineWidth = it.w; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.x2, it.y2); ctx.stroke();
         ctx.globalAlpha = 1;
-      } else if (it.kind === 2) {
-        // pad actuator, optionally with a rod
-        if (it.sx !== null) {
-          ctx.strokeStyle = it.stem; ctx.lineWidth = it.sw; ctx.lineCap = 'round';
-          ctx.beginPath(); ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.sx, it.sy); ctx.stroke();
-        }
-        const g = ctx.createRadialGradient(it.x1 - it.r * 0.35, it.y1 - it.r * 0.4, it.r * 0.15, it.x1, it.y1, it.r);
-        g.addColorStop(0, it.hi); g.addColorStop(1, it.lo);
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(it.x1, it.y1, it.r, 0, 6.2832); ctx.fill();
-      } else if (it.kind === 3) {
-        // capsule fingertip with stem
-        ctx.strokeStyle = it.stem; ctx.lineWidth = it.w * 0.2; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(it.cx, it.cy); ctx.lineTo(it.sx, it.sy); ctx.stroke();
-        ctx.strokeStyle = it.lo; ctx.lineWidth = it.w;
-        ctx.beginPath(); ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.x2, it.y2); ctx.stroke();
-        ctx.strokeStyle = it.hi; ctx.lineWidth = it.w * 0.62;
-        ctx.beginPath();
-        ctx.moveTo(it.x1 - it.w * 0.06, it.y1 - it.w * 0.14);
-        ctx.lineTo(it.x2 - it.w * 0.06, it.y2 - it.w * 0.14);
-        ctx.stroke();
       }
     }
   }
 
-  function steelCol(pal, k) { const s = pal.steel; return `rgb(${(s[0] * k) | 0},${(s[1] * k) | 0},${(s[2] * k) | 0})`; }
-  function pushBall(x, y, z, r, pal, stemTo) {
-    if (!proj(x, y, z, p2a)) return;
-    const sr = FL * r / p2a[2];
-    const sw = 2 * FL * SIM.PARAMS.stemR / p2a[2];
-    let sx = null, sy = null;
-    if (stemTo && proj(stemTo[0], stemTo[1], stemTo[2], p2b)) { sx = p2b[0]; sy = p2b[1]; }
+  // --- unit meshes for actuator hardware (generated once)
+  function makeSphereMesh(segs, rings) {
+    const t = [];
+    const pt = (th, ph) => [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+    for (let r0 = 0; r0 < rings; r0++) {
+      const th0 = Math.PI * r0 / rings, th1 = Math.PI * (r0 + 1) / rings;
+      for (let s0 = 0; s0 < segs; s0++) {
+        const ph0 = 2 * Math.PI * s0 / segs, ph1 = 2 * Math.PI * (s0 + 1) / segs;
+        const a = pt(th0, ph0), b = pt(th1, ph0), c = pt(th1, ph1), d = pt(th0, ph1);
+        if (r0 > 0) t.push(...a, ...c, ...b);            // outward winding
+        if (r0 < rings - 1) t.push(...a, ...d, ...c);
+      }
+    }
+    return new Float64Array(t);
+  }
+  function makeCylMesh(segs) {
+    const t = [];
+    for (let s0 = 0; s0 < segs; s0++) {
+      const ph0 = 2 * Math.PI * s0 / segs, ph1 = 2 * Math.PI * (s0 + 1) / segs;
+      const a = [Math.cos(ph0), 0, Math.sin(ph0)], b = [Math.cos(ph0), 1, Math.sin(ph0)];
+      const c = [Math.cos(ph1), 1, Math.sin(ph1)], d = [Math.cos(ph1), 0, Math.sin(ph1)];
+      t.push(...a, ...b, ...c, ...a, ...c, ...d);
+    }
+    return new Float64Array(t);
+  }
+  const SPH_MESH = makeSphereMesh(8, 5);
+  const CYL_MESH = makeCylMesh(10);
+  const _ta = new Float64Array(3), _tb = new Float64Array(3), _tc = new Float64Array(3);
+
+  // push one lit, backface-culled solid triangle (world coords)
+  function pushSolidTri(ax, ay, az, bx, by, bz, cx, cy, cz, steel, pal) {
+    if (!proj(ax, ay, az, p2a)) return;
+    if (!proj(bx, by, bz, p2b)) return;
+    if (!proj(cx, cy, cz, p2c)) return;
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const nl = Math.hypot(nx, ny, nz);
+    if (nl < 1e-12) return;
+    nx /= nl; ny /= nl; nz /= nl;
+    // light with the normal flipped toward the viewer (winding-agnostic);
+    // far faces are simply overdrawn by near ones in the painter's sort
+    if (nx * (eye[0] - ax) + ny * (eye[1] - ay) + nz * (eye[2] - az) < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    const lit = 0.68 + 0.5 * Math.max(0, nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]);
+    const col = `rgb(${(steel[0] * lit) | 0},${(steel[1] * lit) | 0},${(steel[2] * lit) | 0})`;
     items.push({
-      depth: p2a[2], kind: 2, r: sr, sw,
-      x1: p2a[0], y1: p2a[1], sx, sy,
-      hi: steelCol(pal, 1.25), lo: steelCol(pal, 0.72), stem: pal.stem,
+      depth: (p2a[2] + p2b[2] + p2c[2]) / 3,
+      kind: 0, col,
+      x1: p2a[0], y1: p2a[1], x2: p2b[0], y2: p2b[1], x3: p2c[0], y3: p2c[1],
     });
   }
-  function pushCapsule(c, ax, hl, r, pal) {
-    const e1 = [c[0] - ax[0] * hl, c[1] - ax[1] * hl, c[2] - ax[2] * hl];
-    const e2 = [c[0] + ax[0] * hl, c[1] + ax[1] * hl, c[2] + ax[2] * hl];
-    if (!proj(e1[0], e1[1], e1[2], p2a) || !proj(e2[0], e2[1], e2[2], p2b)) return;
-    if (!proj(c[0], c[1] + 0.62, c[2], p2c)) return;
-    const depth = (p2a[2] + p2b[2]) / 2;
-    items.push({
-      depth, kind: 3,
-      w: 2 * FL * r / depth,
-      x1: p2a[0], y1: p2a[1], x2: p2b[0], y2: p2b[1],
-      cx: (p2a[0] + p2b[0]) / 2, cy: (p2a[1] + p2b[1]) / 2, sx: p2c[0], sy: p2c[1],
-      hi: steelCol(pal, 1.18), lo: steelCol(pal, 0.66), stem: pal.stem,
-    });
+  function pushSphere(x, y, z, r, pal) {
+    const m = SPH_MESH;
+    for (let i = 0; i < m.length; i += 9) {
+      pushSolidTri(
+        x + m[i] * r, y + m[i + 1] * r, z + m[i + 2] * r,
+        x + m[i + 3] * r, y + m[i + 4] * r, z + m[i + 5] * r,
+        x + m[i + 6] * r, y + m[i + 7] * r, z + m[i + 8] * r, pal.steel, pal);
+    }
+  }
+  function pushCyl(a, b, r, pal) {
+    let wx = b[0] - a[0], wy = b[1] - a[1], wz = b[2] - a[2];
+    const wl = Math.hypot(wx, wy, wz);
+    if (wl < 1e-9) return;
+    wx /= wl; wy /= wl; wz /= wl;
+    // orthonormal basis around the axis
+    const ref = Math.abs(wy) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+    let ux = wy * ref[2] - wz * ref[1], uy = wz * ref[0] - wx * ref[2], uz = wx * ref[1] - wy * ref[0];
+    const ul = Math.hypot(ux, uy, uz); ux /= ul; uy /= ul; uz /= ul;
+    const vx = wy * uz - wz * uy, vy = wz * ux - wx * uz, vz = wx * uy - wy * ux;
+    const m = CYL_MESH;
+    const xf = (i, out) => {
+      const px = m[i] * r, py = m[i + 1] * wl, pz = m[i + 2] * r;
+      out[0] = a[0] + ux * px + wx * py + vx * pz;
+      out[1] = a[1] + uy * px + wy * py + vy * pz;
+      out[2] = a[2] + uz * px + wz * py + vz * pz;
+    };
+    for (let i = 0; i < m.length; i += 9) {
+      xf(i, _ta); xf(i + 3, _tb); xf(i + 6, _tc);
+      pushSolidTri(_ta[0], _ta[1], _ta[2], _tb[0], _tb[1], _tb[2], _tc[0], _tc[1], _tc[2], pal.steel, pal);
+    }
   }
   function drawDeskQuad(x0, z0, x1, z1, col, lift) {
     const y = -0.001 - (lift || 0);
@@ -1479,9 +2361,29 @@
     for (const el of document.querySelectorAll('.card')) el.classList.toggle('active', el.dataset.sc === name);
     buildPhasebar();
     const nc = paper.edges.length + paper.hinges.length;
-    const sub = Math.max(8, Math.round(SIM.PARAMS.substeps * ((paper.N - 1) / 20) ** 2));
+    const sub = Math.min(256, Math.max(8, Math.round(SIM.PARAMS.substeps * ((paper.N - 1) / 20) ** 2)));
     document.getElementById('meshOut').textContent =
       `${paper.N}×${paper.N} grid · ${(nc / 1000).toFixed(1)}k constraints · ${sub * 60} steps/s`;
+    // (re)create the GPU backend for the new paper
+    const tok = ++gpuToken;
+    if (gpuBackend) { gpuBackend.destroy(); gpuBackend = null; }
+    document.getElementById('computeOut').textContent = gpuWanted ? '…' : '';
+    if (gpuWanted && typeof GPUSIM !== 'undefined' && GPUSIM.available()) {
+      GPUSIM.create(paper, SIM.PARAMS).then(b => {
+        if (tok !== gpuToken) { b.destroy(); return; }
+        gpuBackend = b;
+        gpuErr = null;
+        document.getElementById('computeOut').textContent = 'on GPU';
+      }).catch(e => {
+        if (tok !== gpuToken) return;
+        gpuErr = e;
+        gpuWanted = false;
+        document.getElementById('computeOut').textContent = 'GPU failed';
+        console.error('WebGPU backend failed, falling back to CPU:', e);
+        for (const o of document.querySelectorAll('#computeSeg button'))
+          o.classList.toggle('on', o.dataset.compute === 'cpu');
+      });
+    }
   }
   function updateHud(ev) {
     const sc = SC[scName];
@@ -1508,11 +2410,28 @@
   function frame(now) {
     const sc = SC[scName];
     const worldAt = (t) => SIM.evalScenario(sc, t).world;
-    let stepped = 0;
     if (running) {
       const per = speed === 2 ? 2 : 1;
       const skip = speed === 0.5 ? (slowTick = 1 - slowTick) : 0;
-      if (!skip) for (let i = 0; i < per; i++) { SIM.stepFrame(paper, worldAt, 1 / 60); stepped++; }
+      if (!skip) {
+        if (gpuWanted) {
+          if (gpuBackend && !gpuBusy) {
+            gpuBusy = true;
+            const myPaper = paper, myBackend = gpuBackend;
+            (async () => {
+              for (let i = 0; i < per; i++) {
+                if (myPaper !== paper || myBackend !== gpuBackend) return;
+                await myBackend.frame(worldAt, 1 / 60);
+              }
+            })().catch(e => {
+              console.error('GPU frame failed:', e);
+              gpuErr = e; gpuWanted = false;
+            }).finally(() => { gpuBusy = false; });
+          }
+        } else {
+          for (let i = 0; i < per; i++) SIM.stepFrame(paper, worldAt, 1 / 60);
+        }
+      }
     }
     const ev = SIM.evalScenario(sc, paper.time);
     if (ev.done && !doneAnnounced) {
@@ -1562,6 +2481,22 @@
       for (const o of document.querySelectorAll('#gridSeg button')) o.classList.toggle('on', o === b);
       setScenario(scName);
     });
+  }
+  for (const b of document.querySelectorAll('#computeSeg button')) {
+    b.addEventListener('click', () => {
+      const wantGpu = b.dataset.compute === 'gpu';
+      if (wantGpu && (typeof GPUSIM === 'undefined' || !GPUSIM.available())) {
+        document.getElementById('computeOut').textContent = 'no WebGPU';
+        return;
+      }
+      gpuWanted = wantGpu;
+      for (const o of document.querySelectorAll('#computeSeg button')) o.classList.toggle('on', o === b);
+      setScenario(scName);
+    });
+  }
+  if (typeof GPUSIM === 'undefined' || !GPUSIM.available()) {
+    document.getElementById('gpuBtn').disabled = true;
+    document.getElementById('gpuBtn').style.opacity = '0.4';
   }
   const fsIn = document.getElementById('fingerSpeed');
   fsIn.addEventListener('change', () => {
@@ -1618,6 +2553,41 @@
       render(ev.world);
       updateHud(ev);
       return { t: paper.time, phase: ev.phase, done: ev.done };
+    },
+    async gpuAdvance(sec) {
+      if (!gpuBackend) return { err: 'no gpu backend', gpuErr: gpuErr && String(gpuErr) };
+      const sc = SC[scName];
+      const worldAt = (t) => SIM.evalScenario(sc, t).world;
+      const n = Math.round(sec * 60);
+      const t0 = performance.now();
+      for (let i = 0; i < n; i++) await gpuBackend.frame(worldAt, 1 / 60);
+      const msPerFrame = (performance.now() - t0) / n;
+      const ev = SIM.evalScenario(sc, paper.time);
+      render(ev.world);
+      updateHud(ev);
+      return { t: paper.time, phase: ev.phase, done: ev.done, msPerFrame };
+    },
+    gpuState: () => ({ wanted: gpuWanted, active: !!gpuBackend, busy: gpuBusy, err: gpuErr && String(gpuErr) }),
+    // parity check: run scenario 1 on both backends from scratch, compare
+    async gpuCheck(secs = 3) {
+      const sc = SIM.getScenarios().s1;
+      const wa = (t) => SIM.evalScenario(sc, t).world;
+      const a = SIM.makePaper();
+      const t0 = performance.now();
+      for (let f = 0; f < secs * 60; f++) SIM.stepFrame(a, wa, 1 / 60);
+      const cpuMs = (performance.now() - t0) / (secs * 60);
+      const b = SIM.makePaper();
+      const gb = await GPUSIM.create(b, SIM.PARAMS);
+      const t1 = performance.now();
+      for (let f = 0; f < secs * 60; f++) await gb.frame(wa, 1 / 60);
+      const gpuMs = (performance.now() - t1) / (secs * 60);
+      gb.destroy();
+      let maxD = 0, avgD = 0;
+      for (let i = 0; i < a.NP; i++) {
+        const d = Math.hypot(a.pos[i * 3] - b.pos[i * 3], a.pos[i * 3 + 1] - b.pos[i * 3 + 1], a.pos[i * 3 + 2] - b.pos[i * 3 + 2]);
+        maxD = Math.max(maxD, d); avgD += d;
+      }
+      return { N: a.NP, maxDrift: maxD, avgDrift: avgD / a.NP, cpuMsPerFrame: cpuMs, gpuMsPerFrame: gpuMs };
     },
   };
 
