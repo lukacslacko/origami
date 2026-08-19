@@ -29,9 +29,10 @@
     N: 25,               // vertices per side (runtime-configurable; paper rebuild needed)
     SIDE: 1.0,           // paper edge length (world units)
     substeps: 15,        // physics substeps per 1/60 s frame at the N=21 baseline;
-                         // scaled with mesh resolution in stepFrame (PBD stiffness
-                         // propagates one constraint per substep, so a finer mesh
-                         // needs proportionally more substeps to feel equally stiff)
+                         // scaled ~linearly with resolution (long-range rope
+                         // constraints carry stretch stiffness across the sheet
+                         // in a few hops, so the naive quadratic law isn't needed)
+    subPow: 1.5,         // exponent of the resolution scaling for substeps
     gravity: 10,         // units / s^2 (tuned for papery droop at this scale)
     airDrag: 1.2,        // 1/s isotropic velocity damping
     normalDrag: 2,       // 1/s extra drag along the sheet normal (air resists broadside motion)
@@ -45,8 +46,8 @@
     plasticRate: 0.6,    // fraction of the excess absorbed per frame
     creaseMark: 0.25,    // rad of rest angle that counts as "creased"
     maxTheta0: 2.85,     // rad clamp for rest angle
-    muStatic: 0.25,      // desk static friction
-    muKinetic: 0.15,     // desk kinetic friction
+    muStatic: 0.22,      // desk static friction
+    muKinetic: 0.13,     // desk kinetic friction
     muPaper: 0.35,       // paper-on-paper friction (stabilizes a rolling fold)
     selfR: 0.014,        // self-collision radius (~paper double thickness)
     fingerR: 0.08,       // pressing-finger capsule radius
@@ -125,6 +126,21 @@
         // shear diagonal v00-v11
         addEdge(idx(i, j), idx(i + 1, j + 1), PARAMS.alphaShear);
       }
+    }
+    // long-range "ropes": one-sided distance constraints (resist stretch only,
+    // never compression) at strides 4/16/64, along rows and columns. They let
+    // in-plane stiffness cross the sheet in a few solver hops, so the substep
+    // count can grow ~linearly with resolution instead of quadratically.
+    // Not added to `connected` — folded sheets may legitimately self-collide
+    // across a rope's span.
+    for (const L of [4, 16, 64]) {
+      if (L >= N - 1) break;
+      for (let i = 0; i < N; i++)
+        for (let j = 0; j + L < N; j += L)
+          edges.push({ a: idx(i, j), b: idx(i, j + L), rest: L * H, alpha: 0, rope: true });
+      for (let j = 0; j < N; j++)
+        for (let i = 0; i + L < N; i += L)
+          edges.push({ a: idx(i, j), b: idx(i + L, j), rest: L * H, alpha: 0, rope: true });
     }
 
     // --- triangles (for rendering & metrics)
@@ -244,11 +260,12 @@
     Math.round(v / paper.H) * paper.N + Math.round(u / paper.H);
   function stepFrame(paper, worldAt, dtFrame) {
     const P = PARAMS;
-    // quadratic in resolution: a chain of M hard constraints keeps only
-    // ~S/M^2 of its stiffness after S Gauss-Seidel substeps
     const kRes = (paper.N - 1) / 20;
-    const sub = Math.max(8, Math.round(P.substeps * kRes * kRes));
+    const sub = Math.max(10, Math.round(P.substeps * Math.pow(kRes, P.subPow)));
     const dt = dtFrame / sub;
+    // hinge projections harden ~1/h^4; damping must grow with resolution to
+    // keep the Gauss-Seidel solve from ringing at the cheaper substep count
+    const bendDamp = P.bendDamp * Math.max(1, kRes);
     const { pos, prev, vel, invMass, baseInvMass, edges, hinges } = paper;
     const A = paper.corners.A;
 
@@ -312,6 +329,7 @@
         const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-12) continue;
         const Cc = len - e.rest;
+        if (e.rope && Cc <= 0) continue; // ropes never resist compression
         const alphaT = e.alpha / (dt * dt);
         const dl = -Cc / (wsum + alphaT);
         const f = dl / len;
@@ -337,7 +355,7 @@
           w1 * (g[3] * g[3] + g[4] * g[4] + g[5] * g[5]) +
           w2 * (g[6] * g[6] + g[7] * g[7] + g[8] * g[8]) +
           w3 * (g[9] * g[9] + g[10] * g[10] + g[11] * g[11]);
-        denom = denom * (1 + P.bendDamp) + (h.soft ? alphaBSoft : alphaB);
+        denom = denom * (1 + bendDamp) + (h.soft ? alphaBSoft : alphaB);
         if (denom < 1e-12) continue;
         // damping term: oppose the constraint's rate of change this substep
         let Cdot = 0;
@@ -349,7 +367,7 @@
         Cdot += g[6] * (pos[pp] - prev[pp]) + g[7] * (pos[pp + 1] - prev[pp + 1]) + g[8] * (pos[pp + 2] - prev[pp + 2]);
         pp = h.w1 * 3;
         Cdot += g[9] * (pos[pp] - prev[pp]) + g[10] * (pos[pp + 1] - prev[pp + 1]) + g[11] * (pos[pp + 2] - prev[pp + 2]);
-        const dl = (-Cc - P.bendDamp * Cdot) / denom;
+        const dl = (-Cc - bendDamp * Cdot) / denom;
         let p = h.e0 * 3;
         pos[p] += w0 * dl * g[0]; pos[p + 1] += w0 * dl * g[1]; pos[p + 2] += w0 * dl * g[2];
         p = h.e1 * 3;
@@ -499,7 +517,11 @@
   function selfCollide(paper) {
     const P = PARAMS;
     const r = P.selfR, cell = r * 2.0001;
-    const { pos, invMass, connected, pairKey } = paper;
+    const { pos, invMass } = paper;
+    const N = paper.N;
+    // skip pairs that are close in MATERIAL space (continuum neighbors can't
+    // "collide"); K grows as the mesh gets finer than the collision radius
+    const K = Math.max(1, Math.ceil((P.selfR * 1.5) / paper.H));
     for (const arr of _hash.values()) { arr.length = 0; _pool.push(arr); }
     _hash.clear();
     for (let i = 0; i < paper.NP; i++) {
@@ -524,7 +546,8 @@
         for (let n = 0; n < arr.length; n++) {
           const j = arr[n];
           if (j <= i) continue;
-          if (connected.has(pairKey(i, j))) continue;
+          if (Math.abs(((i / N) | 0) - ((j / N) | 0)) <= K &&
+              Math.abs((i % N) - (j % N)) <= K) continue;
           const q = j * 3;
           const dx = pos[q] - pos[p], dy = pos[q + 1] - pos[p + 1], dz = pos[q + 2] - pos[p + 2];
           const d2 = dx * dx + dy * dy + dz * dz;
@@ -632,6 +655,46 @@
       return { pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(c) };
     };
     const STATIONS = [0, 0.15, 0.3, 0.45, -0.15, -0.3, -0.45];
+    // scenario-6 geometry: fold corner C=(1,1) onto the midpoint of edge A-B,
+    // M=(0.5,0). The crease is the perpendicular bisector of C-M — a line at
+    // ~27 degrees to the x-axis, deliberately NOT aligned with the mesh.
+    const OB_MID = [0.75, 0.5];                       // midpoint of C-M
+    const OB_NRM = [-0.4472136, -0.8944272];          // unit normal (flap side is negative)
+    const OB_DIR = [-0.8944272, 0.4472136];           // unit direction along the crease
+    const OB_AX3 = [OB_DIR[0], 0, OB_DIR[1]];
+    const rotOb = (u, v, phi) => {
+      const dp = (u - OB_MID[0]) * OB_NRM[0] + (v - OB_MID[1]) * OB_NRM[1]; // < 0 on the flap
+      const fu = u - dp * OB_NRM[0], fv = v - dp * OB_NRM[1];
+      const c = Math.cos(phi), s = Math.sin(phi);
+      const off = 0.015 * (1 - c) / 2, yf = 0.022 * (1 - c) / 2;
+      return [fu + (dp * c + off) * OB_NRM[0], Math.max(yf, Math.abs(dp) * s), fv + (dp * c + off) * OB_NRM[1]];
+    };
+    const OB_GRIPS = [[1, 1], [0, 1], [0.5, 1]];      // C, D, and the top-edge midpoint
+    const obFlap = (phi) => OB_GRIPS.map(([u, v]) => ({ at: [u, v], pos: rotOb(u, v, phi) }));
+    const OB_DOWN = obFlap(Math.PI);
+    const OB_DOWN_SOFT = OB_DOWN.map((g, i) => (i === 0 ? g : { ...g, soft: true }));
+    const OB_HOLDS = [
+      { at: [0.8, 0.08], pos: [0.8, 0, 0.08] },
+      { at: [0.3, 0.2], pos: [0.3, 0, 0.2] },
+    ];
+    const obAt = (s, back, y) => [
+      OB_MID[0] + OB_DIR[0] * s + OB_NRM[0] * back, y,
+      OB_MID[1] + OB_DIR[1] * s + OB_NRM[1] * back,
+    ];
+    // press stations: land behind the crest (+normal = the doubled side),
+    // iron forward over it — same mechanic as scenario 4, oblique line
+    const obPress = (from, s) => (k) => {
+      let c;
+      const hi = obAt(s, 0, 0.30);
+      const bk = obAt(s, 0.06, P.fingerR + 0.010);
+      const fr = obAt(s, -0.03, P.fingerR + P.squeezeGap);
+      if (k < 0.25) c = lerp3(from, hi, smooth(k / 0.25));
+      else if (k < 0.45) c = lerp3(hi, bk, smooth((k - 0.25) / 0.2));
+      else if (k < 0.82) c = lerp3(bk, fr, smooth((k - 0.45) / 0.37));
+      else c = lerp3(fr, hi, smooth((k - 0.82) / 0.18));
+      return { pinA: true, grabs: OB_DOWN_SOFT, fingers: [{ c, r: P.fingerR, ax: OB_AX3, hl: F_HL }] };
+    };
+    const OB_STATIONS = [0.28, 0.03, -0.18, 0.53, 0.75]; // crease line spans s in [-0.28, 0.84]
     // scenario-5 helpers: three fingertips on the fold line; the center one
     // holds while the outer two sweep outward toward the corners. They land
     // slightly behind the crest and nudge forward over it (a vertical press
@@ -723,6 +786,25 @@
           } },
           { dur: 1.0, label: 'The grips let go', fn: () => ({ pinA: true, fingers: [] }) },
           { dur: 3.5, label: 'Everything released — how well did the sweep crease it?', fn: () => ({ pinA: false, fingers: [] }) },
+        ],
+      },
+      's6': {
+        title: 'Fold off the grid — an oblique crease (experiment)',
+        phases: [
+          { dur: 0.8, label: 'Actuator 1 presses corner A onto the desk', fn: () => ({ pinA: true, fingers: [] }) },
+          { dur: 3.6, label: 'Three grips fold corner C over onto the midpoint of the bottom edge', fn: k => ({ pinA: true, grabs: k < 0.8 ? obFlap(Math.PI * smooth(k)).concat(OB_HOLDS) : obFlap(Math.PI * smooth(k)), fingers: [] }) },
+          { dur: 0.6, label: 'The folded flap is held — the crease line runs at ~27°, across the mesh', fn: () => ({ pinA: true, grabs: OB_DOWN, fingers: [] }) },
+          { dur: 1.0 / fs, label: 'The fingertip descends near the landed corner', fn: k => ({ pinA: true, grabs: OB_DOWN_SOFT, fingers: [{ c: lerp3([0.62, 0.55, 0.06], obAt(-0.13, 0.48, P.fingerR + P.slideGap), smooth(k)), r: P.fingerR, ax: OB_AX3, hl: F_HL }] }) },
+          { dur: 3.5 / fs, label: 'It slides toward the crease, pushing the slack into the fold', fn: k => ({ pinA: true, grabs: OB_DOWN_SOFT, fingers: [{ c: lerp3(obAt(-0.13, 0.48, P.fingerR + P.slideGap), obAt(-0.13, -0.04, P.fingerR + P.slideGap), smooth(k)), r: P.fingerR, ax: OB_AX3, hl: F_HL }] }) },
+          { dur: 1.2 / fs, label: 'It squeezes the folded edge', fn: k => ({ pinA: true, grabs: OB_DOWN_SOFT, fingers: [{ c: lerp3(obAt(-0.13, -0.04, P.fingerR + P.slideGap), obAt(-0.13, -0.04, P.fingerR + P.squeezeGap), smooth(k)), r: P.fingerR, ax: OB_AX3, hl: F_HL }] }) },
+          ...OB_STATIONS.map((s, i) => ({
+            dur: 1.5 / fs,
+            label: `The fingertip presses the oblique edge flat (${i + 1} of ${OB_STATIONS.length})`,
+            fn: obPress(i === 0 ? [OB_MID[0], 0.5, OB_MID[1]] : obAt(OB_STATIONS[i - 1], 0, 0.30), s),
+          })),
+          { dur: 1.2 / fs, label: 'The fingertip lifts away', fn: k => ({ pinA: true, grabs: OB_DOWN_SOFT, fingers: [{ c: lerp3(obAt(OB_STATIONS[OB_STATIONS.length - 1], 0, 0.30), [0.4, 0.7, 0.7], smooth(k)), r: P.fingerR, ax: OB_AX3, hl: F_HL }] }) },
+          { dur: 1.0, label: 'The grips let go', fn: () => ({ pinA: true, fingers: [] }) },
+          { dur: 3.5, label: 'Everything released — how straight is an off-grid crease?', fn: () => ({ pinA: false, fingers: [] }) },
         ],
       },
     };

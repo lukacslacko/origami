@@ -22,8 +22,13 @@ self-contained — no dependencies, no build step needed to view it).
 5. **Two thumbs out** — three fingertips land behind the folded edge and iron
    over it together; the middle one holds while the outer two sweep to the
    corners. One sweep, a full crease.
+6. **Fold off the grid** — corner C is folded onto the midpoint of the bottom
+   edge; the crease runs at ~27°, cutting across the mesh. At coarse meshes
+   the staircase crease is weak and the sheet relaxes to a tent; at 61+ the
+   fold holds, with visible serration along the crease — the motivation for
+   curvature-aligned remeshing.
 
-The bench exposes mesh resolution (17–81 per side), finger tempo, press
+The bench exposes mesh resolution (17–161 per side), finger tempo, press
 clearance, and the compute backend; every run is deterministic.
 
 ## WebGPU backend
@@ -36,10 +41,13 @@ substep) and reads positions + crease state back each frame, so the renderer
 and UI are backend-agnostic. Parity vs the CPU backend: ≤0.01 position drift
 after 3 simulated seconds (f32 + constraint-order noise).
 
-Measured (Apple Silicon, Chrome): N=41 real-time, N=61 ≈ 2× slow-mo,
-N=81 ≈ 4× slow-mo — the substep count grows quadratically with resolution
-(PBD stiffness propagates one constraint per substep), which is the real
-scaling wall; the GPU absorbs the per-substep width.
+Readback is pipelined (positions lag the GPU by one frame; crease state read
+at 7.5 Hz), and long-range one-sided "rope" constraints at strides 4/16/64
+carry tension stiffness across the sheet in a few solver hops. Together with
+resolution-scaled hinge damping this lets the substep count grow as N^1.5
+instead of N^2. Measured (Apple Silicon, Chrome): N=61 real-time (~14 ms),
+N=81 ≈ 2× slow-mo, N=121 ≈ 6× slow-mo, N=161 runs (substeps capped at 256;
+the canvas painter's renderer becomes the bottleneck past ~101).
 
 ## Model
 

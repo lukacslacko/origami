@@ -139,5 +139,23 @@ run('s5', (m) => {
   console.log(`  info: ${strong.length} strong hinges, span ${f(Math.min(...along))}..${f(Math.max(...along))}`);
 });
 
+// ---------------- scenario 6: oblique fold -> off-grid crease (experimental)
+run('s6', (m) => {
+  const last = SIM.getScenarios().s6.phases.length - 1;
+  const end = m[last];
+  check('no NaN', !end.nan);
+  const strong = end.creases.filter(c => Math.abs(c.theta0) > 0.5);
+  const NRM = [-0.4472136, -0.8944272], DIR = [-0.8944272, 0.4472136], MID = [0.75, 0.5];
+  const offs = strong.map(c => Math.abs((c.u - MID[0]) * NRM[0] + (c.v - MID[1]) * NRM[1]));
+  const along = strong.map(c => (c.u - MID[0]) * DIR[0] + (c.v - MID[1]) * DIR[1]);
+  check('a strong off-grid crease forms', strong.length >= 10, `strongHinges=${strong.length}`);
+  check('crease hugs the oblique line', strong.length > 0 && Math.max(...offs) < 0.12,
+    `maxOff=${f(Math.max(...offs, 0))}`);
+  check('crease spans most of the line', Math.max(...along) > 0.6 && Math.min(...along) < -0.15,
+    `along=${f(Math.min(...along))}..${f(Math.max(...along))}`);
+  check('settled', end.maxSpeed < 0.3, `v=${f(end.maxSpeed)}`);
+  console.log(`  info: ${strong.length} strong hinges on a ~27° line; sheet relaxes to a tent (maxY=${f(end.maxY)}) — staircase creases are weaker than mesh-aligned ones`);
+});
+
 console.log(failures === 0 ? '\nALL SCENARIO TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

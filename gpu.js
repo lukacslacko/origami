@@ -31,22 +31,30 @@
   }
 
   // ------------------------------------------------------------- coloring
-  // classify edges into 8 conflict-free groups, hinges into 16
+  // classify edges into conflict-free groups: 8 structural + up to 12 rope
+  // groups (per stride level, direction, and chain parity)
+  const ROPE_STRIDES = [4, 16, 64];
   function colorEdges(paper) {
     const N = paper.N;
-    const groups = Array.from({ length: 8 }, () => []);
+    const groups = Array.from({ length: 8 + ROPE_STRIDES.length * 4 }, () => []);
     for (const e of paper.edges) {
       const ia = Math.floor(e.a / N), ja = e.a % N;
       const ib = Math.floor(e.b / N), jb = e.b % N;
       const di = ib - ia, dj = jb - ja;
       let g;
-      if (di === 0) g = 0 + (ja % 2);              // horizontal
+      if (e.rope) {
+        const L = Math.max(Math.abs(di), Math.abs(dj));
+        const li = ROPE_STRIDES.indexOf(L);
+        const isCol = dj === 0;
+        const par = isCol ? Math.floor(ia / L) % 2 : Math.floor(ja / L) % 2;
+        g = 8 + li * 4 + (isCol ? 2 : 0) + par;
+      } else if (di === 0) g = 0 + (ja % 2);       // horizontal
       else if (dj === 0) g = 2 + (ia % 2);         // vertical
       else if (dj === -1) g = 4 + (ia % 2);        // BD diagonal (a = v10, b = v01)
       else g = 6 + (ia % 2);                       // shear diagonal
       groups[g].push(e);
     }
-    return groups;
+    return groups.filter(g => g.length > 0 || true); // keep indices stable
   }
   function colorHinges(paper) {
     const N = paper.N;
@@ -193,7 +201,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let len = length(d);
   if (len < 1e-9) { return; }
   let C = len - e.rest;
-  let dl = -C / (ws + e.alphaT);
+  var aT = e.alphaT;
+  if (aT < 0.0) {                // rope: one-sided, resists stretch only
+    if (C <= 0.0) { return; }
+    aT = 0.0;
+  }
+  let dl = -C / (ws + aT);
   d *= dl / len;
   pos[e.a] = vec4<f32>(pos[e.a].xyz - wa * d, 0.0);
   pos[e.b] = vec4<f32>(pos[e.b].xyz + wb * d, 0.0);
@@ -351,10 +364,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let j = u32(jn - 1);
         jn = nxt[j];
         if (j == i) { continue; }
-        // grid neighbors within the 8-neighborhood are constraint partners
+        // skip pairs close in MATERIAL space (continuum neighbors can't collide)
         let dji = abs(i32(j / P.n) - ii);
         let djj = abs(i32(j % P.n) - ji);
-        if (dji <= 1 && djj <= 1) { continue; }
+        if (dji <= i32(P.pad0) && djj <= i32(P.pad0)) { continue; }
         let q = pos[j].xyz;
         var d = q - (p + dp);
         let d2 = dot(d, d);
@@ -474,7 +487,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     const NP = paper.NP, N = paper.N;
 
     const kRes = (N - 1) / 20;
-    const sub = Math.min(MAXSUB, Math.max(8, Math.round(PARAMS.substeps * kRes * kRes)));
+    const sub = Math.min(MAXSUB, Math.max(10, Math.round(PARAMS.substeps * Math.pow(kRes, PARAMS.subPow))));
 
     // --- constraint coloring
     const edgeGroups = colorEdges(paper);
@@ -503,9 +516,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     const nxtBuf = B(NP * 4, GPUBufferUsage.STORAGE);
     const paramsBuf = B(112, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     const scriptBuf = B(MAXSUB * SUB_STRIDE, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    const rangeBuf = B(32 * 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    const stagePos = B(NP * 16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
-    const stageHinge = B(Math.max(1, hingesSorted.length) * 32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+    const rangeBuf = B(64 * 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    const stagePos = [
+      B(NP * 16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST),
+      B(NP * 16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST),
+    ];
+    const stageHinge = [
+      B(Math.max(1, hingesSorted.length) * 32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST),
+      B(Math.max(1, hingesSorted.length) * 32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST),
+    ];
+    let frameIdx = 0, pendingRead = null;
 
     // --- initial uploads
     {
@@ -544,7 +564,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       edgesSorted.forEach((e, i) => {
         u[i * 4] = e.a; u[i * 4 + 1] = e.b;
         f[i * 4 + 2] = e.rest;
-        f[i * 4 + 3] = e.alpha / (dtSub * dtSub);
+        f[i * 4 + 3] = e.rope ? -1 : e.alpha / (dtSub * dtSub);
       });
       device.queue.writeBuffer(edgeBuf, 0, ed);
     }
@@ -559,10 +579,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       device.queue.writeBuffer(hingeBuf, 0, hd);
     };
     writeHinges();
+    const NEG = edgeRanges.length; // hinge ranges start after all edge groups
     {
-      const r = new Uint32Array(32 * 64);
+      const r = new Uint32Array(64 * 64);
       edgeRanges.forEach(([off, cnt], i) => { r[i * 64] = off; r[i * 64 + 1] = cnt; });
-      hingeRanges.forEach(([off, cnt], i) => { r[(8 + i) * 64] = off; r[(8 + i) * 64 + 1] = cnt; });
+      hingeRanges.forEach(([off, cnt], i) => { r[(NEG + i) * 64] = off; r[(NEG + i) * 64 + 1] = cnt; });
       device.queue.writeBuffer(rangeBuf, 0, r);
     }
     {
@@ -571,13 +592,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       const u = new Uint32Array(ab), f = new Float32Array(ab);
       u[0] = NP; u[1] = edgesSorted.length; u[2] = hingesSorted.length; u[3] = paper.tris.length / 3;
       u[4] = N; u[5] = paper.corners.A; u[6] = GRID_DIM;
+      u[7] = Math.max(1, Math.ceil((PARAMS.selfR * 1.5) / paper.H)); // material skip radius K
       f[8] = dtSub; f[9] = PARAMS.gravity;
       f[10] = Math.exp(-PARAMS.airDrag * dtSub);
       f[11] = Math.exp(-PARAMS.settleDrag * dtSub);
       f[12] = 1 - Math.exp(-PARAMS.normalDrag * dtSub);
       f[13] = PARAMS.alphaBend / (dtSub * dtSub);
       f[14] = (PARAMS.alphaBend * PARAMS.creaseSoften) / (dtSub * dtSub);
-      f[15] = PARAMS.bendDamp;
+      f[15] = PARAMS.bendDamp * Math.max(1, kRes); // scaled: hinge projections harden ~1/h^4
       f[16] = PARAMS.muStatic; f[17] = PARAMS.muKinetic; f[18] = PARAMS.muPaper; f[19] = PARAMS.selfR;
       f[20] = PARAMS.yieldK * paper.H; f[21] = PARAMS.plasticRate; f[22] = PARAMS.maxTheta0; f[23] = PARAMS.creaseMark;
       f[24] = GRID_SPAN / GRID_DIM; f[25] = GRID_ORG;
@@ -710,13 +732,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         const subDyn = { g: subGroup, o: s * SUB_STRIDE };
         disp(pass, pipes.normals, groups.normals, NP);
         disp(pass, pipes.integrate, groups.integrate, NP, subDyn);
-        for (let g = 0; g < 8; g++) {
+        for (let g = 0; g < edgeRanges.length; g++) {
           if (!edgeRanges[g][1]) continue;
           disp(pass, pipes.dist, groups.dist, edgeRanges[g][1], { g: rangeGroup, o: g * 256 });
         }
-        for (let g = 0; g < 16; g++) {
+        for (let g = 0; g < hingeRanges.length; g++) {
           if (!hingeRanges[g][1]) continue;
-          disp(pass, pipes.hinge, groups.hinge, hingeRanges[g][1], { g: rangeGroup, o: (8 + g) * 256 });
+          disp(pass, pipes.hinge, groups.hinge, hingeRanges[g][1], { g: rangeGroup, o: (NEG + g) * 256 });
         }
         disp(pass, pipes.colliders, groups.colliders, NP, subDyn);
         disp(pass, pipes.clearHeads, groups.clearHeads, GRID_DIM * GRID_DIM);
@@ -727,41 +749,55 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       // plasticity, gated by the last substep's fingers
       disp(pass, pipes.plastic, groups.plastic, hingesSorted.length, { g: subGroup, o: (sub - 1) * SUB_STRIDE });
       pass.end();
-      enc.copyBufferToBuffer(posBuf, 0, stagePos, 0, NP * 16);
-      enc.copyBufferToBuffer(hingeBuf, 0, stageHinge, 0, hingeReadAB.byteLength);
+      // pipelined readback: copy into this frame's staging pair, but only
+      // await (and apply) the PREVIOUS frame's — no full GPU stall per frame
+      const cur = frameIdx % 2;
+      const wantHinge = frameIdx % 8 === 0;
+      enc.copyBufferToBuffer(posBuf, 0, stagePos[cur], 0, NP * 16);
+      if (wantHinge) enc.copyBufferToBuffer(hingeBuf, 0, stageHinge[cur], 0, hingeReadAB.byteLength);
       device.queue.submit([enc.finish()]);
-
-      await stagePos.mapAsync(GPUMapMode.READ);
-      posRead.set(new Float32Array(stagePos.getMappedRange()));
-      stagePos.unmap();
-      await stageHinge.mapAsync(GPUMapMode.READ);
-      new Uint8Array(hingeReadAB).set(new Uint8Array(stageHinge.getMappedRange()));
-      stageHinge.unmap();
-
-      // mirror into the CPU paper object (renderer + UI read from it)
+      frameIdx++;
+      paper.time += dtFrame;
+      const finished = { cur, wantHinge };
+      if (pendingRead) await consumeRead(pendingRead);
+      pendingRead = finished;
+    }
+    async function consumeRead(p) {
+      await stagePos[p.cur].mapAsync(GPUMapMode.READ);
+      posRead.set(new Float32Array(stagePos[p.cur].getMappedRange()));
+      stagePos[p.cur].unmap();
       for (let i = 0; i < NP; i++) {
         paper.pos[i * 3] = posRead[i * 4];
         paper.pos[i * 3 + 1] = posRead[i * 4 + 1];
         paper.pos[i * 3 + 2] = posRead[i * 4 + 2];
       }
-      const hf = new Float32Array(hingeReadAB);
-      const hu = new Uint32Array(hingeReadAB);
-      hingesSorted.forEach((h, i) => {
-        h.theta0 = hf[i * 8 + 4];
-        h.thC = hf[i * 8 + 5];
-        h.soft = hu[i * 8 + 6] === 1;
-      });
-      paper.time += dtFrame;
+      if (p.wantHinge) {
+        await stageHinge[p.cur].mapAsync(GPUMapMode.READ);
+        new Uint8Array(hingeReadAB).set(new Uint8Array(stageHinge[p.cur].getMappedRange()));
+        stageHinge[p.cur].unmap();
+        const hf = new Float32Array(hingeReadAB);
+        const hu = new Uint32Array(hingeReadAB);
+        hingesSorted.forEach((h, i) => {
+          h.theta0 = hf[i * 8 + 4];
+          h.thC = hf[i * 8 + 5];
+          h.soft = hu[i * 8 + 6] === 1;
+        });
+      }
+    }
+    async function flush() {
+      if (pendingRead) { await consumeRead(pendingRead); pendingRead = null; }
     }
 
     return {
       substeps: sub,
       frame,
-      _dbg: { device, posBuf, stagePos, NP },
+      flush,
+      _dbg: { device, posBuf, stagePos: stagePos[0], NP },
       destroy() {
         destroyed = true;
         for (const b of [posBuf, prevBuf, velBuf, nrmBuf, baseWBuf, liveWBuf, adjBuf, edgeBuf,
-          hingeBuf, headsBuf, nxtBuf, paramsBuf, scriptBuf, rangeBuf, stagePos, stageHinge]) b.destroy();
+          hingeBuf, headsBuf, nxtBuf, paramsBuf, scriptBuf, rangeBuf,
+          ...stagePos, ...stageHinge]) b.destroy();
         device.destroy();
       },
     };
