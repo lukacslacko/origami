@@ -9,4 +9,8 @@ if (!tpl.includes('/* INJECT:GPU */')) throw new Error('gpu inject marker missin
 const out = tpl.replace('/* INJECT:SIM */', () => sim).replace('/* INJECT:GPU */', () => gpu);
 fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(__dirname, 'dist', 'crease-lab.html'), out);
-console.log('wrote dist/crease-lab.html', (out.length / 1024).toFixed(0) + 'kB');
+// standalone copy for GitHub Pages
+fs.mkdirSync(path.join(__dirname, 'docs'), { recursive: true });
+fs.writeFileSync(path.join(__dirname, 'docs', 'index.html'),
+  '<!doctype html>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n' + out);
+console.log('wrote dist/crease-lab.html + docs/index.html', (out.length / 1024).toFixed(0) + 'kB');
