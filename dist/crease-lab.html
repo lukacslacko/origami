@@ -1,0 +1,1635 @@
+<title>Crease Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #E8EAED;
+    --surface: #FBFCFD;
+    --surface-2: #F0F2F5;
+    --ink: #1F2A35;
+    --ink-2: #5C6D7C;
+    --line: #D5DBE1;
+    --accent: #3D5C92;
+    --accent-soft: #E3EAF5;
+    --accent-ink: #FFFFFF;
+    --scar: #7A4A2E;
+    --display: "Bricolage Grotesque", "Avenir Next", "Helvetica Neue", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #11161C;
+      --surface: #1A222B;
+      --surface-2: #151C24;
+      --ink: #DEE5EC;
+      --ink-2: #8C9AA9;
+      --line: #2A343F;
+      --accent: #8FAEDC;
+      --accent-soft: #25334A;
+      --accent-ink: #10161D;
+      --scar: #C98A5E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #11161C;
+    --surface: #1A222B;
+    --surface-2: #151C24;
+    --ink: #DEE5EC;
+    --ink-2: #8C9AA9;
+    --line: #2A343F;
+    --accent: #8FAEDC;
+    --accent-soft: #25334A;
+    --accent-ink: #10161D;
+    --scar: #C98A5E;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .app {
+    display: flex;
+    height: 100vh;
+    height: 100dvh;
+  }
+  /* ------------------------------------------------------------- rail */
+  .rail {
+    width: 360px;
+    flex: 0 0 360px;
+    overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 26px 24px 20px;
+  }
+  .rail header { display: flex; flex-direction: column; gap: 8px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 34px;
+    line-height: 1.05;
+    margin: 0;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .lede { margin: 0; color: var(--ink-2); font-size: 14px; max-width: 42ch; }
+
+  .cards { display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 4px 12px;
+    text-align: left;
+    padding: 13px 14px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    cursor: pointer;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .card.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+  .card .num {
+    grid-row: span 3;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 21px;
+    color: var(--accent);
+    padding-top: 1px;
+  }
+  .card h2 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 16.5px;
+    line-height: 1.2;
+  }
+  .card p { margin: 0; font-size: 13px; color: var(--ink-2); }
+  .card .watch {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--accent);
+    margin-top: 2px;
+  }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .btn {
+    font: inherit;
+    font-weight: 500;
+    font-size: 13.5px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    min-width: 92px;
+  }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 8px 11px;
+    border: 0;
+    background: var(--surface);
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent-soft); color: var(--ink); font-weight: 500; }
+
+  .params { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .params h3 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .prow { display: flex; align-items: center; gap: 10px; }
+  .plabel {
+    flex: 0 0 104px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+  .prow input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  .prow output {
+    flex: 0 0 44px;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .params .note { margin: 0; font-size: 12px; color: var(--ink-2); }
+
+  .explain { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .explain h3 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .explain dl { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .explain dt {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .explain dd { margin: 2px 0 0; font-size: 13px; color: var(--ink-2); }
+  .fineprint {
+    font-size: 12px;
+    color: var(--ink-2);
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    margin: 0;
+  }
+  .rail footer {
+    margin-top: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-2);
+    letter-spacing: 0.04em;
+  }
+
+  /* ------------------------------------------------------------ stage */
+  .stage { position: relative; flex: 1; min-width: 0; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  #view:active { cursor: grabbing; }
+  .hud {
+    position: absolute;
+    left: 18px; right: 18px; bottom: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none;
+  }
+  .phasebar { display: flex; gap: 3px; height: 4px; }
+  .phasebar .ph { position: relative; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .phasebar .ph i {
+    position: absolute; inset: 0;
+    background: var(--accent);
+    transform-origin: left;
+    transform: scaleX(0);
+    display: block;
+  }
+  .caption {
+    align-self: flex-start;
+    max-width: 60ch;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 9px 14px;
+    font-size: 13.5px;
+    box-shadow: 0 4px 18px rgba(15, 22, 30, 0.10);
+  }
+  .caption b { font-weight: 600; }
+  .readout {
+    position: absolute; top: 14px; right: 18px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-2);
+    background: color-mix(in srgb, var(--surface) 78%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 5px 10px;
+    display: flex; gap: 14px;
+  }
+  .readout .creases { color: var(--scar); }
+  .hint {
+    position: absolute; top: 14px; left: 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-2);
+    letter-spacing: 0.03em;
+  }
+  @media (max-width: 860px) {
+    .app { flex-direction: column; height: auto; }
+    .stage { order: -1; height: 62vh; min-height: 380px; flex: none; }
+    .rail { width: auto; flex: none; border-right: 0; border-top: 1px solid var(--line); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <header>
+      <span class="eyebrow">Origami robot · bench test 01</span>
+      <h1>Crease Lab</h1>
+      <p class="lede">Before a robot can fold origami, it has to understand paper.
+      This bench runs a simplified sheet — it bends, slips on the desk, and remembers
+      a crease — under three scripted hand moves.</p>
+    </header>
+
+    <nav class="cards" aria-label="Scenarios">
+      <button class="card" id="card-s1" data-sc="s1">
+        <span class="num">1</span>
+        <h2>Press &amp; bend</h2>
+        <p>One finger pins corner A to the desk. Another lifts the far corner.
+        The sheet bows; paper is elastic, so letting go snaps it flat again.</p>
+        <span class="watch">watch: the pinned corner never moves</span>
+      </button>
+      <button class="card" id="card-s2" data-sc="s2">
+        <span class="num">2</span>
+        <h2>Let go of the wrong finger</h2>
+        <p>Same bend — but the pinning finger releases first. Stored bending energy
+        shoves the sheet out from under it; it hangs half-bent, then drops flat.</p>
+        <span class="watch">watch: it lands square, but shifted</span>
+      </button>
+      <button class="card" id="card-s3" data-sc="s3">
+        <span class="num">3</span>
+        <h2>Fold &amp; pinch</h2>
+        <p>Three grips turn corner C over onto A like a page while a second hand
+        holds the sheet flat. A fingertip then slides from the corner to the folded
+        edge and squeezes — past the yield point, the fibres give.</p>
+        <span class="watch">watch: a pinched wedge survives release</span>
+      </button>
+      <button class="card" id="card-s4" data-sc="s4">
+        <span class="num">4</span>
+        <h2>Work a full crease</h2>
+        <p>Same fold — but after the centre pinch the fingertip hops along the
+        folded edge, pressing it flat spot by spot out to both corners.</p>
+        <span class="watch">watch: released, the sheet stays folded</span>
+      </button>
+    </nav>
+
+    <div class="controls">
+      <button class="btn primary" id="playBtn">Pause</button>
+      <button class="btn" id="restartBtn">Restart</button>
+      <div class="seg" id="speedSeg" role="group" aria-label="Playback speed">
+        <button data-speed="0.5">&frac12;&times;</button>
+        <button data-speed="1" class="on">1&times;</button>
+        <button data-speed="2">2&times;</button>
+      </div>
+      <button class="btn" id="camBtn">Reset view</button>
+    </div>
+
+    <section class="params">
+      <h3>Bench parameters</h3>
+      <div class="prow">
+        <span class="plabel">Mesh</span>
+        <div class="seg" id="gridSeg" role="group" aria-label="Mesh resolution">
+          <button data-n="17">17</button>
+          <button data-n="21">21</button>
+          <button data-n="25" class="on">25</button>
+          <button data-n="29">29</button>
+          <button data-n="33">33</button>
+        </div>
+      </div>
+      <div class="prow">
+        <label class="plabel" for="fingerSpeed">Finger speed</label>
+        <input type="range" id="fingerSpeed" min="0.4" max="1.6" step="0.1" value="1">
+        <output id="fingerSpeedOut" for="fingerSpeed">1.0&times;</output>
+      </div>
+      <div class="prow">
+        <label class="plabel" for="pressGap">Press clearance</label>
+        <input type="range" id="pressGap" min="0.008" max="0.028" step="0.002" value="0.020">
+        <output id="pressGapOut" for="pressGap">0.020</output>
+      </div>
+      <p class="note">Finger speed and clearance shape scenario 3's pinch. A finer
+      mesh folds more cleanly but costs more compute — the physics substep rate
+      scales with resolution. Changing a parameter restarts the run.</p>
+    </section>
+
+    <section class="explain">
+      <h3>Inside the model</h3>
+      <dl>
+        <dt>Stretch</dt>
+        <dd>A square weave of point masses (625 at the default 25&times;25 mesh).
+        Distance constraints keep the sheet inextensible, so it drapes and buckles
+        instead of stretching.</dd>
+        <dt>Bend</dt>
+        <dd>Every mesh edge is a hinge that fights folding — a spring on the angle
+        between neighbouring faces, solved with XPBD. The substep rate scales with
+        mesh resolution so stiffness stays the same at every grid size.</dd>
+        <dt>Crease</dt>
+        <dd>Squeezed past its yield curvature under the fingertip, a hinge's
+        preferred angle shifts permanently and stays shifted — plasticity. Scars
+        draw as dark lines on the sheet.</dd>
+        <dt>Desk</dt>
+        <dd>A plane with static and kinetic friction — the sheet sticks until
+        pushed hard enough, then slides (the whole story of scenario 2). The
+        sheet's own layers rub on each other too, which is what keeps a fold from
+        skating sideways while it is pressed.</dd>
+        <dt>Hands</dt>
+        <dd>Actuators are kinematic: a corner pin, point grips, and a capsule
+        fingertip. All of their hardware — pads, rods, and the fingertip — collides
+        with the sheet, so the paper can never pass through a tool. It answers
+        with nothing but physics.</dd>
+      </dl>
+      <p class="fineprint">Deliberately simplified: creases can only form along mesh
+      lines, creasing needs fingertip pressure (at this resolution a closed fold and
+      a pressed crease read the same angle), self-contact is a simple particle
+      cushion, and the air does nothing.</p>
+    </section>
+
+    <footer id="meshOut">25&times;25 grid</footer>
+  </aside>
+
+  <main class="stage">
+    <canvas id="view" aria-label="3D view of the paper simulation"></canvas>
+    <span class="hint">drag to orbit &middot; scroll to zoom</span>
+    <div class="readout">
+      <span id="fpsOut">-- fps</span>
+      <span class="creases" id="creaseOut">0 creased hinges</span>
+    </div>
+    <div class="hud">
+      <div class="phasebar" id="phasebar"></div>
+      <div class="caption" id="caption" aria-live="polite"><b>Loading&hellip;</b></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/*
+ * sim.js — simplified physical model of a square sheet of paper.
+ *
+ * Model: XPBD (extended position-based dynamics, small-substeps flavour).
+ *  - Particles on an N x N grid.
+ *  - Distance constraints: structural edges, cell diagonals (both directions;
+ *    one of them is the triangulation edge, the other pure shear).
+ *  - Signed dihedral hinge constraints over every interior edge -> bending.
+ *  - Plasticity: when a hinge bends beyond a yield angle its rest angle flows
+ *    toward the current angle and the hinge is weakened -> a permanent crease.
+ *  - Desk: y=0 plane with Coulomb-ish stick/slip friction resolved in the
+ *    position projection.
+ *  - Actuators (kinematic): "pin" (press a corner to the desk), "grab"
+ *    (hold/move a corner), "finger" (sphere collider).
+ *
+ * The mesh diagonals are aligned with the B-D diagonal of the square so a
+ * fold of corner C onto corner A can crease cleanly along its natural line.
+ *
+ * Runs both in the browser (global SIM) and in Node (module.exports).
+ */
+(function (root, factory) {
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory();
+  else root.SIM = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  // ---------------------------------------------------------------- params
+  const PARAMS = {
+    N: 25,               // vertices per side (runtime-configurable; paper rebuild needed)
+    SIDE: 1.0,           // paper edge length (world units)
+    substeps: 15,        // physics substeps per 1/60 s frame at the N=21 baseline;
+                         // scaled with mesh resolution in stepFrame (PBD stiffness
+                         // propagates one constraint per substep, so a finer mesh
+                         // needs proportionally more substeps to feel equally stiff)
+    gravity: 10,         // units / s^2 (tuned for papery droop at this scale)
+    airDrag: 1.2,        // 1/s isotropic velocity damping
+    normalDrag: 2,       // 1/s extra drag along the sheet normal (air resists broadside motion)
+    settleDrag: 2.2,     // extra 1/s damping applied near the desk (calms settling)
+    alphaStretch: 0.0,   // XPBD compliance, structural edges (0 = rigid projection)
+    alphaShear: 1e-6,    // shear diagonals slightly softer
+    alphaBend: 1e-3,     // hinge compliance (higher = floppier paper)
+    bendDamp: 0.3,       // hinge constraint damping (kills Gauss-Seidel ringing at contacts)
+    creaseSoften: 1.4,   // compliance multiplier for a creased hinge (mild damage)
+    yieldK: 13,          // yield curvature (rad per unit length); per-hinge yield angle = yieldK * H
+    plasticRate: 0.6,    // fraction of the excess absorbed per frame
+    creaseMark: 0.25,    // rad of rest angle that counts as "creased"
+    maxTheta0: 2.85,     // rad clamp for rest angle
+    muStatic: 0.25,      // desk static friction
+    muKinetic: 0.15,     // desk kinetic friction
+    muPaper: 0.35,       // paper-on-paper friction (stabilizes a rolling fold)
+    selfR: 0.014,        // self-collision radius (~paper double thickness)
+    fingerR: 0.08,       // pressing-finger capsule radius
+    padR: 0.026,         // pin/grip pad radius (collides with the sheet)
+    padLift: 0.032,      // pad center height above its hold point
+    stemR: 0.010,        // actuator stem radius (collides with the sheet)
+    fingerStemR: 0.016,  // fingertip stem radius
+    stemLen: 0.62,       // stem length above the pad / fingertip
+    fingerSpeed: 1.0,    // scenario-3 finger tempo multiplier (higher = faster)
+    slideGap: 0.020,     // clearance under the fingertip while sliding (crushing the
+                         // doubled sheet thinner than ~2*selfR makes it accordion)
+    squeezeGap: 0.008,   // clearance at the final squeeze
+    fingerEnd: 0.62,     // x=z coordinate where the slide stops (chases the fold crest)
+  };
+
+  // reference grid spacing (the N=21 baseline the parameters were tuned at);
+  // particle mass scales with H^2 so areal density — and therefore the
+  // droop/slip/crease behavior — is resolution-independent
+  const H0 = PARAMS.SIDE / 20;
+
+  // ------------------------------------------------------------- vec utils
+  function wrapPi(a) {
+    a = (a + Math.PI) % (2 * Math.PI);
+    if (a < 0) a += 2 * Math.PI;
+    return a - Math.PI;
+  }
+
+  // ---------------------------------------------------------- construction
+  function makePaper() {
+    const N = Math.max(9, PARAMS.N | 0);
+    const H = PARAMS.SIDE / (N - 1);
+    const NP = N * N;
+    const idx = (i, j) => i * N + j; // i -> z row, j -> x column
+    const corners = {
+      A: idx(0, 0),          // (0,0)
+      B: idx(0, N - 1),      // (1,0)
+      C: idx(N - 1, N - 1),  // (1,1)
+      D: idx(N - 1, 0),      // (0,1)
+    };
+    const w0 = (H0 / H) * (H0 / H); // invMass; mass per particle ~ H^2
+    const pos = new Float64Array(NP * 3);
+    const prev = new Float64Array(NP * 3);
+    const vel = new Float64Array(NP * 3);
+    const invMass = new Float64Array(NP);
+    const baseInvMass = new Float64Array(NP);
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const p = idx(i, j) * 3;
+        pos[p] = j * H;      // x
+        pos[p + 1] = 0;      // y (desk)
+        pos[p + 2] = i * H;  // z
+        invMass[idx(i, j)] = w0;
+        baseInvMass[idx(i, j)] = w0;
+      }
+    }
+    prev.set(pos);
+
+    // --- distance constraints
+    const edges = []; // {a, b, rest, alpha}
+    const pairKey = (a, b) => (a < b ? a * NP + b : b * NP + a);
+    const connected = new Set();
+    function addEdge(a, b, alpha) {
+      const dx = pos[a * 3] - pos[b * 3];
+      const dz = pos[a * 3 + 2] - pos[b * 3 + 2];
+      edges.push({ a, b, rest: Math.hypot(dx, dz), alpha });
+      connected.add(pairKey(a, b));
+    }
+    for (let i = 0; i < N; i++)
+      for (let j = 0; j < N - 1; j++) addEdge(idx(i, j), idx(i, j + 1), PARAMS.alphaStretch);
+    for (let i = 0; i < N - 1; i++)
+      for (let j = 0; j < N; j++) addEdge(idx(i, j), idx(i + 1, j), PARAMS.alphaStretch);
+    for (let i = 0; i < N - 1; i++) {
+      for (let j = 0; j < N - 1; j++) {
+        // triangulation diagonal v10-v01 (parallel to the B-D diagonal)
+        addEdge(idx(i, j + 1), idx(i + 1, j), PARAMS.alphaStretch);
+        // shear diagonal v00-v11
+        addEdge(idx(i, j), idx(i + 1, j + 1), PARAMS.alphaShear);
+      }
+    }
+
+    // --- triangles (for rendering & metrics)
+    // cell (i,j): T1 = (v00, v01, v10), T2 = (v10, v01, v11)  (normals +y when flat)
+    const tris = [];
+    for (let i = 0; i < N - 1; i++) {
+      for (let j = 0; j < N - 1; j++) {
+        const v00 = idx(i, j), v10 = idx(i, j + 1), v01 = idx(i + 1, j), v11 = idx(i + 1, j + 1);
+        tris.push(v00, v01, v10, v10, v01, v11);
+      }
+    }
+
+    // --- hinges: {e0, e1, w0, w1, theta0, soft, u, v}
+    // edge (e0,e1), wing w0 in triangle (e0,e1,w0), wing w1 in triangle (e0,w1,e1)
+    const hinges = [];
+    function addHinge(e0, e1, w0, w1) {
+      const u = (pos[e0 * 3] + pos[e1 * 3]) / 2;
+      const v = (pos[e0 * 3 + 2] + pos[e1 * 3 + 2]) / 2;
+      // thC: continuously-tracked angle — a fold pressed fully flat sits at
+      // theta = +-pi, right on the atan2 wrap, where a wrapped difference
+      // flips sign every substep and makes the solver buzz
+      hinges.push({ e0, e1, w0, w1, theta0: 0, thC: 0, soft: false, u, v });
+    }
+    for (let i = 0; i < N - 1; i++) {
+      for (let j = 0; j < N - 1; j++) {
+        // diagonal hinge inside each cell: edge v10-v01, wings v00 and v11
+        addHinge(idx(i, j + 1), idx(i + 1, j), idx(i, j), idx(i + 1, j + 1));
+      }
+    }
+    // vertical interior edges (i,j)-(i+1,j) for interior columns j
+    for (let j = 1; j < N - 1; j++) {
+      for (let i = 0; i < N - 1; i++) {
+        addHinge(idx(i, j), idx(i + 1, j), idx(i, j + 1), idx(i + 1, j - 1));
+      }
+    }
+    // horizontal interior edges (i,j)-(i,j+1) for interior rows i
+    for (let i = 1; i < N - 1; i++) {
+      for (let j = 0; j < N - 1; j++) {
+        addHinge(idx(i, j), idx(i, j + 1), idx(i + 1, j), idx(i - 1, j + 1));
+      }
+    }
+
+    return {
+      params: PARAMS, N, H, NP, corners,
+      pos, prev, vel, invMass, baseInvMass,
+      edges, hinges, tris, connected, pairKey,
+      nrm: new Float64Array(NP * 3),
+      time: 0,
+    };
+  }
+
+  // area-weighted vertex normals (for broadside air drag)
+  function vertexNormals(paper) {
+    const { pos, tris, nrm } = paper;
+    nrm.fill(0);
+    for (let t = 0; t < tris.length; t += 3) {
+      const a = tris[t] * 3, b = tris[t + 1] * 3, c = tris[t + 2] * 3;
+      const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2];
+      const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      nrm[a] += nx; nrm[a + 1] += ny; nrm[a + 2] += nz;
+      nrm[b] += nx; nrm[b + 1] += ny; nrm[b + 2] += nz;
+      nrm[c] += nx; nrm[c + 1] += ny; nrm[c + 2] += nz;
+    }
+  }
+
+  // ---------------------------------------------------- signed hinge angle
+  // Returns theta (NaN when degenerate); with wantGrad, writes the 4 gradients
+  // into the shared scratch _g (12 floats). Convention: both wings lifting
+  // toward +y from a flat sheet => theta > 0. Allocation-free (hot path).
+  const _g = new Float64Array(12);
+  function hingeAngle(pos, h, wantGrad) {
+    const p0 = h.e0 * 3, p1 = h.e1 * 3, p2 = h.w0 * 3, p3 = h.w1 * 3;
+    const x0x = pos[p0], x0y = pos[p0 + 1], x0z = pos[p0 + 2];
+    const ex = pos[p1] - x0x, ey = pos[p1 + 1] - x0y, ez = pos[p1 + 2] - x0z;
+    const ax = pos[p2] - x0x, ay = pos[p2 + 1] - x0y, az = pos[p2 + 2] - x0z;
+    const bx = pos[p3] - x0x, by = pos[p3 + 1] - x0y, bz = pos[p3 + 2] - x0z;
+    // n1 = e x (x2-x0), n2 = (x3-x0) x e  -> parallel when flat
+    const n1x = ey * az - ez * ay, n1y = ez * ax - ex * az, n1z = ex * ay - ey * ax;
+    const n2x = by * ez - bz * ey, n2y = bz * ex - bx * ez, n2z = bx * ey - by * ex;
+    const elen = Math.sqrt(ex * ex + ey * ey + ez * ez);
+    const n1sq = n1x * n1x + n1y * n1y + n1z * n1z;
+    const n2sq = n2x * n2x + n2y * n2y + n2z * n2z;
+    if (elen < 1e-10 || n1sq < 1e-14 || n2sq < 1e-14) return NaN;
+    const cx = n1y * n2z - n1z * n2y, cy = n1z * n2x - n1x * n2z, cz = n1x * n2y - n1y * n2x;
+    const sinT = (cx * ex + cy * ey + cz * ez) / elen;
+    const cosT = n1x * n2x + n1y * n2y + n1z * n2z;
+    const theta = Math.atan2(sinT, cosT);
+    if (!wantGrad) return theta;
+    // grad wrt wings: rotating a wing about the edge; direction is the
+    // (un-normalized) triangle normal; verified by finite differences.
+    const s2 = -elen / n1sq, s3 = -elen / n2sq;
+    const g2x = s2 * n1x, g2y = s2 * n1y, g2z = s2 * n1z;
+    const g3x = s3 * n2x, g3y = s3 * n2y, g3z = s3 * n2z;
+    const inv_ee = 1 / (elen * elen);
+    const a2 = (ax * ex + ay * ey + az * ez) * inv_ee - 1; // (x2-x1).e / |e|^2
+    const a3 = (bx * ex + by * ey + bz * ez) * inv_ee - 1; // (x3-x1).e / |e|^2
+    // grad0 = a2*g2 + a3*g3 ; grad1 = -(1+a2)*g2 - (1+a3)*g3 ... signs verified by FD
+    const g0x = a2 * g2x + a3 * g3x, g0y = a2 * g2y + a3 * g3y, g0z = a2 * g2z + a3 * g3z;
+    const g1x = -(1 + a2) * g2x - (1 + a3) * g3x;
+    const g1y = -(1 + a2) * g2y - (1 + a3) * g3y;
+    const g1z = -(1 + a2) * g2z - (1 + a3) * g3z;
+    _g[0] = g0x; _g[1] = g0y; _g[2] = g0z;
+    _g[3] = g1x; _g[4] = g1y; _g[5] = g1z;
+    _g[6] = g2x; _g[7] = g2y; _g[8] = g2z;
+    _g[9] = g3x; _g[10] = g3y; _g[11] = g3z;
+    return theta;
+  }
+
+  // -------------------------------------------------------------- stepping
+  // world = {
+  //   pinA: bool,
+  //   grabs: [{at: [u,v] material coords, pos: [x,y,z]}] | undefined,
+  //   finger: {c:[x,y,z], r, ax, hl} | null,
+  // }
+  const matIdx = (paper, u, v) =>
+    Math.round(v / paper.H) * paper.N + Math.round(u / paper.H);
+  function stepFrame(paper, worldAt, dtFrame) {
+    const P = PARAMS;
+    // quadratic in resolution: a chain of M hard constraints keeps only
+    // ~S/M^2 of its stiffness after S Gauss-Seidel substeps
+    const kRes = (paper.N - 1) / 20;
+    const sub = Math.max(8, Math.round(P.substeps * kRes * kRes));
+    const dt = dtFrame / sub;
+    const { pos, prev, vel, invMass, baseInvMass, edges, hinges } = paper;
+    const A = paper.corners.A;
+
+    for (let s = 0; s < sub; s++) {
+      const t = paper.time + dt * (s + 1);
+      const world = worldAt(t);
+      const grabs = world.grabs || [];
+
+      // kinematic flags (soft grips keep their mass and are pulled, not welded)
+      invMass.set(baseInvMass);
+      if (world.pinA) invMass[A] = 0;
+      for (const g of grabs) if (!g.soft) invMass[matIdx(paper, g.at[0], g.at[1])] = 0;
+
+      // integrate
+      vertexNormals(paper);
+      const nrm = paper.nrm;
+      const dragK = Math.exp(-P.airDrag * dt);
+      const nDragK = 1 - Math.exp(-P.normalDrag * dt);
+      for (let i = 0; i < paper.NP; i++) {
+        const p = i * 3;
+        prev[p] = pos[p]; prev[p + 1] = pos[p + 1]; prev[p + 2] = pos[p + 2];
+        if (invMass[i] === 0) continue;
+        vel[p + 1] -= P.gravity * dt;
+        let d = dragK;
+        if (pos[p + 1] < 0.01) d *= Math.exp(-P.settleDrag * dt);
+        vel[p] *= d; vel[p + 1] *= d; vel[p + 2] *= d;
+        // broadside air drag: damp the velocity component along the sheet normal
+        const nx = nrm[p], ny = nrm[p + 1], nz = nrm[p + 2];
+        const nsq = nx * nx + ny * ny + nz * nz;
+        if (nsq > 1e-16) {
+          const vn = (vel[p] * nx + vel[p + 1] * ny + vel[p + 2] * nz) / nsq * nDragK;
+          vel[p] -= vn * nx; vel[p + 1] -= vn * ny; vel[p + 2] -= vn * nz;
+        }
+        pos[p] += vel[p] * dt;
+        pos[p + 1] += vel[p + 1] * dt;
+        pos[p + 2] += vel[p + 2] * dt;
+      }
+      // kinematic targets; soft grips pull with finite strength instead, so a
+      // clamped flap can give a little rather than trap and wrinkle material
+      if (world.pinA) { pos[A * 3] = 0; pos[A * 3 + 1] = 0; pos[A * 3 + 2] = 0; }
+      for (const g of grabs) {
+        const p = matIdx(paper, g.at[0], g.at[1]) * 3;
+        if (g.soft) {
+          const k = 0.3; // per-substep pull fraction toward the grip target
+          pos[p] += (g.pos[0] - pos[p]) * k;
+          pos[p + 1] += (g.pos[1] - pos[p + 1]) * k;
+          pos[p + 2] += (g.pos[2] - pos[p + 2]) * k;
+        } else {
+          pos[p] = g.pos[0]; pos[p + 1] = g.pos[1]; pos[p + 2] = g.pos[2];
+        }
+      }
+
+      // --- distance constraints
+      for (let k = 0; k < edges.length; k++) {
+        const e = edges[k];
+        const pa = e.a * 3, pb = e.b * 3;
+        const wa = invMass[e.a], wb = invMass[e.b];
+        const wsum = wa + wb;
+        if (wsum === 0) continue;
+        let dx = pos[pb] - pos[pa], dy = pos[pb + 1] - pos[pa + 1], dz = pos[pb + 2] - pos[pa + 2];
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < 1e-12) continue;
+        const Cc = len - e.rest;
+        const alphaT = e.alpha / (dt * dt);
+        const dl = -Cc / (wsum + alphaT);
+        const f = dl / len;
+        dx *= f; dy *= f; dz *= f;
+        pos[pa] -= wa * dx; pos[pa + 1] -= wa * dy; pos[pa + 2] -= wa * dz;
+        pos[pb] += wb * dx; pos[pb + 1] += wb * dy; pos[pb + 2] += wb * dz;
+      }
+
+      // --- hinge (bending / crease) constraints
+      const alphaB = P.alphaBend / (dt * dt);
+      const alphaBSoft = (P.alphaBend * P.creaseSoften) / (dt * dt);
+      for (let k = 0; k < hinges.length; k++) {
+        const h = hinges[k];
+        const thRaw = hingeAngle(pos, h, true);
+        if (thRaw !== thRaw) continue;
+        const th = h.thC + wrapPi(thRaw - h.thC); // unwrap for continuity
+        h.thC = th;
+        const Cc = th - h.theta0;
+        const g = _g;
+        const w0 = invMass[h.e0], w1 = invMass[h.e1], w2 = invMass[h.w0], w3 = invMass[h.w1];
+        let denom =
+          w0 * (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]) +
+          w1 * (g[3] * g[3] + g[4] * g[4] + g[5] * g[5]) +
+          w2 * (g[6] * g[6] + g[7] * g[7] + g[8] * g[8]) +
+          w3 * (g[9] * g[9] + g[10] * g[10] + g[11] * g[11]);
+        denom = denom * (1 + P.bendDamp) + (h.soft ? alphaBSoft : alphaB);
+        if (denom < 1e-12) continue;
+        // damping term: oppose the constraint's rate of change this substep
+        let Cdot = 0;
+        let pp = h.e0 * 3;
+        Cdot += g[0] * (pos[pp] - prev[pp]) + g[1] * (pos[pp + 1] - prev[pp + 1]) + g[2] * (pos[pp + 2] - prev[pp + 2]);
+        pp = h.e1 * 3;
+        Cdot += g[3] * (pos[pp] - prev[pp]) + g[4] * (pos[pp + 1] - prev[pp + 1]) + g[5] * (pos[pp + 2] - prev[pp + 2]);
+        pp = h.w0 * 3;
+        Cdot += g[6] * (pos[pp] - prev[pp]) + g[7] * (pos[pp + 1] - prev[pp + 1]) + g[8] * (pos[pp + 2] - prev[pp + 2]);
+        pp = h.w1 * 3;
+        Cdot += g[9] * (pos[pp] - prev[pp]) + g[10] * (pos[pp + 1] - prev[pp + 1]) + g[11] * (pos[pp + 2] - prev[pp + 2]);
+        const dl = (-Cc - P.bendDamp * Cdot) / denom;
+        let p = h.e0 * 3;
+        pos[p] += w0 * dl * g[0]; pos[p + 1] += w0 * dl * g[1]; pos[p + 2] += w0 * dl * g[2];
+        p = h.e1 * 3;
+        pos[p] += w1 * dl * g[3]; pos[p + 1] += w1 * dl * g[4]; pos[p + 2] += w1 * dl * g[5];
+        p = h.w0 * 3;
+        pos[p] += w2 * dl * g[6]; pos[p + 1] += w2 * dl * g[7]; pos[p + 2] += w2 * dl * g[8];
+        p = h.w1 * 3;
+        pos[p] += w3 * dl * g[9]; pos[p + 1] += w3 * dl * g[10]; pos[p + 2] += w3 * dl * g[11];
+      }
+
+      // --- actuator colliders: every piece of hardware the paper could touch
+      // (fingertip capsule, pin/grip pads, and all the stems) as capsules;
+      // a sphere is a zero-length capsule
+      let nc = 0;
+      const cb = _colBuf;
+      const addCol = (ax_, ay_, az_, bx_, by_, bz_, r_) => {
+        const o = nc * 7;
+        cb[o] = ax_; cb[o + 1] = ay_; cb[o + 2] = az_;
+        cb[o + 3] = bx_; cb[o + 4] = by_; cb[o + 5] = bz_;
+        cb[o + 6] = r_; nc++;
+      };
+      if (world.finger) {
+        const f = world.finger, hl = f.hl || 0, fx = f.ax || [1, 0, 0];
+        addCol(f.c[0] - fx[0] * hl, f.c[1] - fx[1] * hl, f.c[2] - fx[2] * hl,
+          f.c[0] + fx[0] * hl, f.c[1] + fx[1] * hl, f.c[2] + fx[2] * hl, f.r);
+        addCol(f.c[0], f.c[1], f.c[2], f.c[0], f.c[1] + P.stemLen, f.c[2], P.fingerStemR);
+      }
+      if (world.pinA) {
+        // the pin's rod slants outward, away from the sheet, so a flap folded
+        // onto corner A doesn't have to drape around it
+        addCol(0, P.padLift, 0, 0, P.padLift, 0, P.padR);
+        addCol(0, P.padLift, 0, -0.26, P.padLift + 0.56, -0.26, P.stemR);
+      }
+      // grips and hold-downs are low-profile pads (tweezer points, no rods)
+      for (const g of grabs) {
+        const gy = g.pos[1] + P.padLift;
+        addCol(g.pos[0], gy, g.pos[2], g.pos[0], gy, g.pos[2], P.padR);
+      }
+      for (let ci = 0; ci < nc; ci++) {
+        const o = ci * 7;
+        const ax_ = cb[o], ay_ = cb[o + 1], az_ = cb[o + 2];
+        const abx = cb[o + 3] - ax_, aby = cb[o + 4] - ay_, abz = cb[o + 5] - az_;
+        const abLen2 = abx * abx + aby * aby + abz * abz;
+        const r = cb[o + 6] + 0.004, r2 = r * r;
+        for (let i = 0; i < paper.NP; i++) {
+          if (invMass[i] === 0) continue;
+          const p = i * 3;
+          let dx = pos[p] - ax_, dy = pos[p + 1] - ay_, dz = pos[p + 2] - az_;
+          if (abLen2 > 1e-12) {
+            let t = (dx * abx + dy * aby + dz * abz) / abLen2;
+            if (t < 0) t = 0; else if (t > 1) t = 1;
+            dx -= t * abx; dy -= t * aby; dz -= t * abz;
+          }
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < r2 && d2 > 1e-12) {
+            const d = Math.sqrt(d2), f = (r - d) / d;
+            pos[p] += dx * f; pos[p + 1] += dy * f; pos[p + 2] += dz * f;
+          }
+        }
+      }
+
+      // --- self collision (spatial hash); a flat-lying sheet cannot self-touch
+      let anyHigh = false;
+      for (let i = 0; i < paper.NP; i++) if (pos[i * 3 + 1] > 0.05) { anyHigh = true; break; }
+      if (anyHigh || world.finger) selfCollide(paper);
+
+      // --- desk plane + friction
+      for (let i = 0; i < paper.NP; i++) {
+        if (invMass[i] === 0) {
+          if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 0;
+          continue;
+        }
+        const p = i * 3;
+        if (pos[p + 1] < 0) {
+          const depth = -pos[p + 1];
+          pos[p + 1] = 0;
+          let tx = pos[p] - prev[p], tz = pos[p + 2] - prev[p + 2];
+          const tl = Math.hypot(tx, tz);
+          if (tl > 1e-12) {
+            if (tl < P.muStatic * depth) {
+              pos[p] = prev[p]; pos[p + 2] = prev[p + 2]; // static: stick
+            } else {
+              const drop = Math.min(tl, P.muKinetic * depth);
+              const f = (tl - drop) / tl;
+              pos[p] = prev[p] + tx * f;
+              pos[p + 2] = prev[p + 2] + tz * f;
+            }
+          }
+        }
+      }
+
+      // --- velocity update
+      const invDt = 1 / dt;
+      for (let i = 0; i < paper.NP; i++) {
+        const p = i * 3;
+        vel[p] = (pos[p] - prev[p]) * invDt;
+        vel[p + 1] = (pos[p + 1] - prev[p + 1]) * invDt;
+        vel[p + 2] = (pos[p + 2] - prev[p + 2]) * invDt;
+      }
+    }
+    paper.time += dtFrame;
+
+    // --- plasticity (once per frame): rest angle flows toward held angle.
+    // Creasing needs pressure, not just a closed fold: at this mesh resolution a
+    // fold that merely falls closed reads the same sharp hinge angle as a pressed
+    // crease, so plastic flow is gated to hinges being squeezed by the finger.
+    const world = worldAt(paper.time);
+    const fingerNow = world.finger || null;
+    if (fingerNow) {
+      const yieldA = PARAMS.yieldK * paper.H; // same yield *curvature* at every resolution
+      const fc = fingerNow.c, fr = fingerNow.r + 0.05;
+      const fax = fingerNow.ax || [1, 0, 0];
+      const fhl = fingerNow.hl || 0;
+      for (let k = 0; k < hinges.length; k++) {
+        const h = hinges[k];
+        // distance from hinge midpoint to the capsule axis segment
+        const mx = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2 - fc[0];
+        const my = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2 - fc[1];
+        const mz = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2 - fc[2];
+        let sdot = mx * fax[0] + my * fax[1] + mz * fax[2];
+        if (sdot > fhl) sdot = fhl; else if (sdot < -fhl) sdot = -fhl;
+        const qx = mx - sdot * fax[0], qy = my - sdot * fax[1], qz = mz - sdot * fax[2];
+        if (qx * qx + qy * qy + qz * qz > fr * fr) continue;
+        const thRaw = hingeAngle(paper.pos, h, false);
+        if (thRaw !== thRaw) continue;
+        const ex = h.thC + wrapPi(thRaw - h.thC) - h.theta0;
+        if (Math.abs(ex) > yieldA) {
+          const s = Math.sign(ex);
+          h.theta0 += PARAMS.plasticRate * (ex - s * yieldA);
+          if (h.theta0 > PARAMS.maxTheta0) h.theta0 = PARAMS.maxTheta0;
+          if (h.theta0 < -PARAMS.maxTheta0) h.theta0 = -PARAMS.maxTheta0;
+          if (Math.abs(h.theta0) > PARAMS.creaseMark) h.soft = true;
+        }
+      }
+    }
+  }
+
+  const _colBuf = new Float64Array(16 * 7); // actuator collider scratch
+
+  // self-collision via uniform spatial hash (cell arrays pooled across calls)
+  const _hash = new Map();
+  const _pool = [];
+  function selfCollide(paper) {
+    const P = PARAMS;
+    const r = P.selfR, cell = r * 2.0001;
+    const { pos, invMass, connected, pairKey } = paper;
+    for (const arr of _hash.values()) { arr.length = 0; _pool.push(arr); }
+    _hash.clear();
+    for (let i = 0; i < paper.NP; i++) {
+      const p = i * 3;
+      const key =
+        (Math.floor(pos[p] / cell) + 512) +
+        (Math.floor(pos[p + 1] / cell) + 512) * 1024 +
+        (Math.floor(pos[p + 2] / cell) + 512) * 1048576;
+      let arr = _hash.get(key);
+      if (!arr) { arr = _pool.pop() || []; _hash.set(key, arr); }
+      arr.push(i);
+    }
+    const r2 = r * r;
+    for (let i = 0; i < paper.NP; i++) {
+      const p = i * 3;
+      const cx = Math.floor(pos[p] / cell) + 512;
+      const cy = Math.floor(pos[p + 1] / cell) + 512;
+      const cz = Math.floor(pos[p + 2] / cell) + 512;
+      for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) for (let oz = -1; oz <= 1; oz++) {
+        const arr = _hash.get((cx + ox) + (cy + oy) * 1024 + (cz + oz) * 1048576);
+        if (!arr) continue;
+        for (let n = 0; n < arr.length; n++) {
+          const j = arr[n];
+          if (j <= i) continue;
+          if (connected.has(pairKey(i, j))) continue;
+          const q = j * 3;
+          const dx = pos[q] - pos[p], dy = pos[q + 1] - pos[p + 1], dz = pos[q + 2] - pos[p + 2];
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < r2 && d2 > 1e-14) {
+            const d = Math.sqrt(d2);
+            const wi = invMass[i], wj = invMass[j], ws = wi + wj;
+            if (ws === 0) continue;
+            // under-relaxed projections: full-stiff corrections here can
+            // ping-pong against the stretch/bend solves and leave particles
+            // buzzing in place
+            const corr = 0.8 * (r - d) / d / ws;
+            pos[p] -= wi * corr * dx; pos[p + 1] -= wi * corr * dy; pos[p + 2] -= wi * corr * dz;
+            pos[q] += wj * corr * dx; pos[q + 1] += wj * corr * dy; pos[q + 2] += wj * corr * dz;
+            // layer friction: damp relative tangential slip this substep,
+            // budgeted by the normal correction (Coulomb-style)
+            const nx = dx / d, ny = dy / d, nz = dz / d;
+            const prev = paper.prev;
+            let sx = (pos[p] - prev[p]) - (pos[q] - prev[q]);
+            let sy = (pos[p + 1] - prev[p + 1]) - (pos[q + 1] - prev[q + 1]);
+            let sz = (pos[p + 2] - prev[p + 2]) - (pos[q + 2] - prev[q + 2]);
+            const sn = sx * nx + sy * ny + sz * nz;
+            sx -= sn * nx; sy -= sn * ny; sz -= sn * nz;
+            const stl = Math.sqrt(sx * sx + sy * sy + sz * sz);
+            if (stl > 1e-12) {
+              const f = 0.5 * Math.min(1, P.muPaper * (r - d) / stl);
+              const fi = (wi / ws) * f, fj = (wj / ws) * f;
+              pos[p] -= fi * sx; pos[p + 1] -= fi * sy; pos[p + 2] -= fi * sz;
+              pos[q] += fj * sx; pos[q + 1] += fj * sy; pos[q + 2] += fj * sz;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // -------------------------------------------------------------- scenarios
+  const smooth = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
+  const lerp3 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+
+  // Scenario scripts are built on demand so PARAMS edits (finger tempo, press
+  // clearance, slide end) take effect on the next run.
+  // Each phase: dur, label, fn(k) -> world  (k in [0,1], eased inside fn)
+  function getScenarios() {
+    const P = PARAMS;
+    const fs = Math.max(0.1, P.fingerSpeed);
+    const C0 = [P.SIDE, 0, P.SIDE];                // corner C at rest
+    const LIFT = [0.74, 0.52, 0.74];               // lifted-C hold position
+    const grabC = (pos) => [{ at: [1, 1], pos }];  // single grip on corner C
+    // Scenario-3 carry: the flap (triangle B-C-D) is turned over the B-D
+    // diagonal like a page. One grip can't do that to a floppy sheet — its
+    // free corners sag and the fold arch topples off the line — so the flap
+    // is carried on three grips (corner C + both edge midpoints), each
+    // tracing the rigid rotation of its own material point about B-D.
+    const FLAP_GRIPS = [[1, 1], [1, 0.5], [0.5, 1]];
+    const rotBD = (u, v, phi) => {
+      const d = (u + v - 1) / 2;         // foot offset: point = foot + d*(1,1)
+      const r = d * Math.SQRT2;          // distance to the B-D line
+      const c = Math.cos(phi), s = Math.sin(phi);
+      const off = 0.015 * (1 - c) / 2;   // ramps 0 -> 0.015 so landing clears pin A
+      const yfloor = 0.022 * (1 - c) / 2;
+      return [u - d + c * d + off, Math.max(yfloor, r * s), v - d + c * d + off];
+    };
+    const flap = (phi) => FLAP_GRIPS.map(([u, v]) => ({ at: [u, v], pos: rotBD(u, v, phi) }));
+    const FLAP_DOWN = flap(Math.PI);
+    // edge grips force-limited: corner C stays welded, E1/E2 hold firmly but
+    // can give a little, so pressing the fold doesn't trap and wrinkle material
+    const FLAP_DOWN_SOFT = FLAP_DOWN.map((g, i) => (i === 0 ? g : { ...g, soft: true }));
+    // while the fingertip irons, only corner C stays held — rigid edge grips
+    // would trap the material the shrinking fold loop releases and buckle it
+    const C_DOWN = [FLAP_DOWN[0]];
+    // the "second hand": holds the bottom half flat while the flap is turned,
+    // sliding out just before the flap lands on it
+    const HOLDS = [
+      { at: [0.55, 0.15], pos: [0.55, 0, 0.15] },
+      { at: [0.15, 0.55], pos: [0.15, 0, 0.55] },
+    ];
+    const F_AX = [-Math.SQRT1_2, 0, Math.SQRT1_2]; // fingertip pad axis: along the B-D fold line
+    const F_HL = 0.11;                             // fingertip pad half-length
+    const pressY = P.fingerR + P.slideGap;
+    const pressY2 = P.fingerR + P.squeezeGap;
+    const F_START = [0.16, 0.6, 0.16];
+    const F_DOWN = [0.16, pressY, 0.16];
+    const F_END = [P.fingerEnd, pressY, P.fingerEnd];
+    const F_SQZ = [P.fingerEnd, pressY2, P.fingerEnd];
+    const F_UP = [P.fingerEnd, 0.7, P.fingerEnd];
+    const fing = (c) => ({ c, r: P.fingerR, ax: F_AX, hl: F_HL });
+    // Full-crease walk: with the flap grips held, the fold is an open standing
+    // tube along x+z ~ 0.90. A dragged fingertip cannot squash it (line-on-line
+    // contact — the tube rolls off the flank), but a vertical press traps it
+    // against the desk, exactly like the centre squeeze. So the fingertip hops
+    // along the edge and presses at overlapping stations.
+    const SWC = 0.45;   // per-axis center of the fold tube
+    const stHi = (s) => [SWC + F_AX[0] * s, 0.30, SWC + F_AX[2] * s];
+    // each press lands just behind the crest and irons forward over it — a
+    // purely vertical press lets the tube squirt out forward like a stepped-on
+    // hose, while the forward push corners it against the held top layer
+    const stBk = (s) => [SWC - 0.06 + F_AX[0] * s, P.fingerR + 0.010, SWC - 0.06 + F_AX[2] * s];
+    const stFr = (s) => [SWC + 0.04 + F_AX[0] * s, P.fingerR + P.squeezeGap, SWC + 0.04 + F_AX[2] * s];
+    const pressFn = (from, s) => (k) => {
+      let c;
+      if (k < 0.25) c = lerp3(from, stHi(s), smooth(k / 0.25));
+      else if (k < 0.45) c = lerp3(stHi(s), stBk(s), smooth((k - 0.25) / 0.2));
+      else if (k < 0.82) c = lerp3(stBk(s), stFr(s), smooth((k - 0.45) / 0.37));
+      else c = lerp3(stFr(s), stHi(s), smooth((k - 0.82) / 0.18));
+      return { pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(c) };
+    };
+    const STATIONS = [0, 0.15, 0.3, 0.45, -0.15, -0.3, -0.45];
+    // s4's approach glides above the sheet (no deep slide — pressing a held
+    // flap while sliding wrinkles it; the stations do all the creasing)
+    const glideY = P.fingerR + 0.026;
+    const G_DOWN = [0.16, glideY, 0.16];
+    const G_END = [P.fingerEnd, glideY, P.fingerEnd];
+    return {
+      's1': {
+        title: 'Hold & bend — springs back',
+        phases: [
+          { dur: 0.8, label: 'Actuator 1 presses corner A onto the desk', fn: () => ({ pinA: true, finger: null }) },
+          { dur: 1.4, label: 'Actuator 2 lifts the opposite corner C — the paper bends', fn: k => ({ pinA: true, grabs: grabC(lerp3(C0, LIFT, smooth(k))), finger: null }) },
+          { dur: 1.0, label: 'Holding — corner A must not move', fn: () => ({ pinA: true, grabs: grabC(LIFT), finger: null }) },
+          { dur: 2.2, label: 'Corner C released — the paper snaps back flat', fn: () => ({ pinA: true, finger: null }) },
+          { dur: 1.5, label: 'Corner A released — nothing happens, the sheet is where it was', fn: () => ({ pinA: false, finger: null }) },
+        ],
+      },
+      's2': {
+        title: 'Release the held corner first — slips & shifts',
+        phases: [
+          { dur: 0.8, label: 'Actuator 1 presses corner A onto the desk', fn: () => ({ pinA: true, finger: null }) },
+          { dur: 1.4, label: 'Actuator 2 lifts corner C — the paper bends', fn: k => ({ pinA: true, grabs: grabC(lerp3(C0, LIFT, smooth(k))), finger: null }) },
+          { dur: 0.8, label: 'Holding', fn: () => ({ pinA: true, grabs: grabC(LIFT), finger: null }) },
+          { dur: 2.0, label: 'Corner A released first — the sheet slips out and hangs, still bent', fn: () => ({ pinA: false, grabs: grabC(LIFT), finger: null }) },
+          { dur: 2.6, label: 'Corner C released — the sheet settles flat as a square, but shifted', fn: () => ({ pinA: false, finger: null }) },
+        ],
+      },
+      's3': {
+        title: 'Fold over & pinch — a permanent crease',
+        phases: [
+          { dur: 0.8, label: 'Actuator 1 presses corner A onto the desk', fn: () => ({ pinA: true, finger: null }) },
+          { dur: 3.6, label: 'Three grips turn the C-half over the diagonal; the other hand holds the sheet flat', fn: k => ({ pinA: true, grabs: k < 0.8 ? flap(Math.PI * smooth(k)).concat(HOLDS) : flap(Math.PI * smooth(k)), finger: null }) },
+          { dur: 0.6, label: 'The folded half is held down — the sheet hinges at its middle', fn: () => ({ pinA: true, grabs: FLAP_DOWN, finger: null }) },
+          { dur: 1.0 / fs, label: 'Actuator 3 (a fingertip) descends near the folded corner', fn: k => ({ pinA: true, grabs: FLAP_DOWN, finger: fing(lerp3(F_START, F_DOWN, smooth(k))) }) },
+          { dur: 5.5 / fs, label: 'The fingertip slides from the corner toward the folded edge, pressing the fold flat', fn: k => ({ pinA: true, grabs: C_DOWN, finger: fing(lerp3(F_DOWN, F_END, smooth(k))) }) },
+          { dur: 1.8 / fs, label: 'At the folded edge the fibres yield — a crease forms', fn: k => ({ pinA: true, grabs: C_DOWN, finger: fing(lerp3(F_END, F_SQZ, smooth(k))) }) },
+          { dur: 1.4 / fs, label: 'The fingertip lifts away', fn: k => ({ pinA: true, grabs: C_DOWN, finger: fing(lerp3(F_SQZ, F_UP, smooth(k))) }) },
+          { dur: 1.8, label: 'The grip eases the fold open before letting go', fn: k => ({ pinA: true, grabs: [flap(Math.PI * (1 - 0.55 * smooth(k)))[0]], finger: null }) },
+          { dur: 4.0, label: 'All actuators released — the sheet relaxes, but the pinch crease stays', fn: () => ({ pinA: false, finger: null }) },
+        ],
+      },
+      's4': {
+        title: 'A full crease, worked along the edge — the fold stays',
+        phases: [
+          { dur: 0.8, label: 'Actuator 1 presses corner A onto the desk', fn: () => ({ pinA: true, finger: null }) },
+          { dur: 3.6, label: 'Three grips turn the C-half over the diagonal; the other hand holds the sheet flat', fn: k => ({ pinA: true, grabs: k < 0.8 ? flap(Math.PI * smooth(k)).concat(HOLDS) : flap(Math.PI * smooth(k)), finger: null }) },
+          { dur: 0.6, label: 'The folded half is held down — the sheet hinges at its middle', fn: () => ({ pinA: true, grabs: FLAP_DOWN, finger: null }) },
+          { dur: 1.0 / fs, label: 'The fingertip descends near the folded corner', fn: k => ({ pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(lerp3(F_START, G_DOWN, smooth(k))) }) },
+          { dur: 3.5 / fs, label: 'The fingertip glides out to the folded edge', fn: k => ({ pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(lerp3(G_DOWN, G_END, smooth(k))) }) },
+          ...STATIONS.map((s, i) => ({
+            dur: 1.5 / fs,
+            label: `It works along the folded edge, pressing it flat (${i + 1} of ${STATIONS.length})`,
+            fn: pressFn(i === 0 ? G_END : stHi(STATIONS[i - 1]), s),
+          })),
+          { dur: 1.2 / fs, label: 'The fingertip lifts away — the crease now runs corner to corner', fn: k => ({ pinA: true, grabs: FLAP_DOWN_SOFT, finger: fing(lerp3(stHi(STATIONS[STATIONS.length - 1]), F_UP, smooth(k))) }) },
+          { dur: 1.0, label: 'The grips let go — a full crease holds the fold by itself', fn: () => ({ pinA: true, finger: null }) },
+          { dur: 3.5, label: 'Everything released — the sheet stays folded', fn: () => ({ pinA: false, finger: null }) },
+        ],
+      },
+    };
+  }
+
+  function scenarioDuration(sc) {
+    return sc.phases.reduce((s, p) => s + p.dur, 0);
+  }
+
+  // evaluate scenario at absolute time t -> {world, label, phase, done}
+  function evalScenario(sc, t) {
+    let acc = 0;
+    for (let i = 0; i < sc.phases.length; i++) {
+      const ph = sc.phases[i];
+      if (t < acc + ph.dur) {
+        return { world: ph.fn((t - acc) / ph.dur), label: ph.label, phase: i, done: false };
+      }
+      acc += ph.dur;
+    }
+    const last = sc.phases[sc.phases.length - 1];
+    return { world: last.fn(1), label: last.label, phase: sc.phases.length - 1, done: true };
+  }
+
+  // ---------------------------------------------------------------- metrics
+  function metrics(paper) {
+    const { pos, hinges } = paper;
+    let maxY = -Infinity, maxSpeed = 0, nan = false;
+    for (let i = 0; i < paper.NP; i++) {
+      const p = i * 3;
+      if (!isFinite(pos[p]) || !isFinite(pos[p + 1]) || !isFinite(pos[p + 2])) nan = true;
+      if (pos[p + 1] > maxY) maxY = pos[p + 1];
+      const v = Math.hypot(paper.vel[p], paper.vel[p + 1], paper.vel[p + 2]);
+      if (v > maxSpeed) maxSpeed = v;
+    }
+    const CORNERS = paper.corners;
+    const corner = (c) => [pos[c * 3], pos[c * 3 + 1], pos[c * 3 + 2]];
+    let cx = 0, cz = 0;
+    for (let i = 0; i < paper.NP; i++) { cx += pos[i * 3]; cz += pos[i * 3 + 2]; }
+    cx /= paper.NP; cz /= paper.NP;
+    let maxTheta = 0, maxTheta0 = 0;
+    const creases = [];
+    for (const h of hinges) {
+      const th = hingeAngle(pos, h, false);
+      if (th === th && Math.abs(th) > maxTheta) maxTheta = Math.abs(th);
+      if (Math.abs(h.theta0) > maxTheta0) maxTheta0 = Math.abs(h.theta0);
+      if (Math.abs(h.theta0) > 0.15) creases.push({ u: h.u, v: h.v, theta0: h.theta0 });
+    }
+    return {
+      maxY, maxSpeed, nan,
+      A: corner(CORNERS.A), B: corner(CORNERS.B), C: corner(CORNERS.C), D: corner(CORNERS.D),
+      centroid: [cx, cz], maxTheta, maxTheta0, creases,
+    };
+  }
+
+  return {
+    PARAMS, makePaper, stepFrame, hingeAngle, wrapPi, _grad: _g,
+    getScenarios, evalScenario, scenarioDuration, metrics,
+  };
+});
+
+</script>
+<script>
+(() => {
+  'use strict';
+  // ------------------------------------------------------------- state
+  const canvas = document.getElementById('view');
+  const ctx = canvas.getContext('2d');
+  const captionEl = document.getElementById('caption');
+  const phasebarEl = document.getElementById('phasebar');
+  const fpsOut = document.getElementById('fpsOut');
+  const creaseOut = document.getElementById('creaseOut');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let scName = 's1';
+  let SC = SIM.getScenarios();
+  let paper = SIM.makePaper();
+  let running = !reduced;
+  let speed = 1;
+  let slowTick = 0;
+  let doneAnnounced = false;
+  let phaseFills = [];
+  let lastLabel = '';
+
+  // camera
+  const CAM0 = { az: -0.65, el: 0.46, dist: 2.15 };
+  const cam = { ...CAM0, target: [0.5, 0.07, 0.5] };
+
+  // ------------------------------------------------- theme-aware scene palette
+  const darkMq = matchMedia('(prefers-color-scheme: dark)');
+  function scenePalette() {
+    const t = document.documentElement.getAttribute('data-theme');
+    const dark = t === 'dark' || (t !== 'light' && darkMq.matches);
+    return dark ? {
+      bgTop: '#171d25', bgBot: '#0d1116',
+      deskTop: '#54473a', deskLit: '#5f5142', deskEdge: '#3a3128', dot: 'rgba(222,229,236,0.10)',
+      shadow: 'rgba(0,0,0,0.28)',
+      paperFront: [232, 228, 216], paperBack: [110, 143, 192],
+      scar: 'rgba(60,38,22,0.55)', scarBack: 'rgba(20,28,44,0.55)',
+      steel: [150, 160, 172], stem: 'rgba(150,160,172,0.85)',
+      amb: 0.42, dif: 0.58,
+    } : {
+      bgTop: '#eceef0', bgBot: '#dcdfe3',
+      deskTop: '#cdbd9f', deskLit: '#d8c9ab', deskEdge: '#b3a284', dot: 'rgba(31,42,53,0.13)',
+      shadow: 'rgba(26,32,40,0.13)',
+      paperFront: [252, 250, 244], paperBack: [74, 107, 158],
+      scar: 'rgba(96,58,32,0.5)', scarBack: 'rgba(24,34,54,0.5)',
+      steel: [104, 116, 130], stem: 'rgba(104,116,130,0.85)',
+      amb: 0.52, dif: 0.48,
+    };
+  }
+
+  // ------------------------------------------------------------ projection
+  let W = 0, H = 0, DPR = 1, FL = 1;
+  function resize() {
+    DPR = Math.min(devicePixelRatio || 1, 2);
+    const r = canvas.getBoundingClientRect();
+    W = Math.max(1, Math.round(r.width * DPR));
+    H = Math.max(1, Math.round(r.height * DPR));
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    FL = 1.05 * H / (2 * Math.tan(0.35));
+  }
+  addEventListener('resize', resize);
+
+  const eye = [0, 0, 0]; let bR = [1, 0, 0], bU = [0, 1, 0], bF = [0, 0, 1];
+  function updateCamera() {
+    const ce = Math.cos(cam.el), se = Math.sin(cam.el);
+    eye[0] = cam.target[0] + cam.dist * ce * Math.sin(cam.az);
+    eye[1] = cam.target[1] + cam.dist * se;
+    eye[2] = cam.target[2] + cam.dist * ce * Math.cos(cam.az);
+    const f = norm3([cam.target[0] - eye[0], cam.target[1] - eye[1], cam.target[2] - eye[2]]);
+    const r = norm3(cross3(f, [0, 1, 0]));
+    bF = f; bR = r; bU = cross3(r, f);
+  }
+  const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  function norm3(v) { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
+  // project world point -> [sx, sy, depth] or null when behind camera
+  function proj(x, y, z, out) {
+    const dx = x - eye[0], dy = y - eye[1], dz = z - eye[2];
+    const zc = dx * bF[0] + dy * bF[1] + dz * bF[2];
+    if (zc < 0.05) return false;
+    const xc = dx * bR[0] + dy * bR[1] + dz * bR[2];
+    const yc = dx * bU[0] + dy * bU[1] + dz * bU[2];
+    out[0] = W / 2 + FL * xc / zc;
+    out[1] = H / 2 - FL * yc / zc;
+    out[2] = zc;
+    return true;
+  }
+
+  const LIGHT = norm3([-0.42, 0.82, -0.31]);       // toward the light
+  const LDIR = [0.42 / 0.82, 0, 0.31 / 0.82];      // ground-shadow offset per unit height
+
+  // ------------------------------------------------------------ rendering
+  const p2a = new Float64Array(3), p2b = new Float64Array(3), p2c = new Float64Array(3);
+  const items = [];
+  function render(world) {
+    resize(); updateCamera();
+    const pal = scenePalette();
+    const pos = paper.pos, tris = paper.tris;
+
+    // background
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, pal.bgTop); bg.addColorStop(1, pal.bgBot);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+    // desk (two stacked rounded slabs) + dot grid
+    drawDeskQuad(-0.75, -0.75, 1.75, 1.75, pal.deskEdge, 0.012);
+    drawDeskQuad(-0.72, -0.72, 1.72, 1.72, pal.deskTop, 0);
+    ctx.fillStyle = pal.dot;
+    for (let gx = -0.5; gx <= 1.51; gx += 0.25) {
+      for (let gz = -0.5; gz <= 1.51; gz += 0.25) {
+        if (proj(gx, 0.001, gz, p2a)) {
+          const r = Math.max(1, FL * 0.006 / p2a[2]);
+          ctx.beginPath(); ctx.arc(p2a[0], p2a[1], r, 0, 6.2832); ctx.fill();
+        }
+      }
+    }
+
+    // paper shadows (projected along the light onto the desk)
+    ctx.fillStyle = pal.shadow;
+    ctx.beginPath();
+    for (let t = 0; t < tris.length; t += 3) {
+      const a = tris[t] * 3, b = tris[t + 1] * 3, c = tris[t + 2] * 3;
+      const ya = pos[a + 1], yb = pos[b + 1], yc = pos[c + 1];
+      if (ya < 0.006 && yb < 0.006 && yc < 0.006) continue;
+      if (!proj(pos[a] + LDIR[0] * ya, 0.001, pos[a + 2] + LDIR[2] * ya, p2a)) continue;
+      if (!proj(pos[b] + LDIR[0] * yb, 0.001, pos[b + 2] + LDIR[2] * yb, p2b)) continue;
+      if (!proj(pos[c] + LDIR[0] * yc, 0.001, pos[c + 2] + LDIR[2] * yc, p2c)) continue;
+      ctx.moveTo(p2a[0], p2a[1]); ctx.lineTo(p2b[0], p2b[1]); ctx.lineTo(p2c[0], p2c[1]);
+    }
+    ctx.fill();
+    if (world && world.finger) {
+      const c = world.finger.c;
+      if (c[1] < 0.55 && proj(c[0] + LDIR[0] * c[1], 0.001, c[2] + LDIR[2] * c[1], p2a)) {
+        ctx.beginPath();
+        ctx.arc(p2a[0], p2a[1], FL * world.finger.r / p2a[2], 0, 6.2832);
+        ctx.fill();
+      }
+    }
+
+    // build depth-sorted item list: paper triangles + actuators
+    items.length = 0;
+    for (let t = 0; t < tris.length; t += 3) {
+      const ia = tris[t] * 3, ib = tris[t + 1] * 3, ic = tris[t + 2] * 3;
+      if (!proj(pos[ia], pos[ia + 1], pos[ia + 2], p2a)) continue;
+      if (!proj(pos[ib], pos[ib + 1], pos[ib + 2], p2b)) continue;
+      if (!proj(pos[ic], pos[ic + 1], pos[ic + 2], p2c)) continue;
+      // world normal
+      const ux = pos[ib] - pos[ia], uy = pos[ib + 1] - pos[ia + 1], uz = pos[ib + 2] - pos[ia + 2];
+      const vx = pos[ic] - pos[ia], vy = pos[ic + 1] - pos[ia + 1], vz = pos[ic + 2] - pos[ia + 2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+      const cx = (pos[ia] + pos[ib] + pos[ic]) / 3, cy = (pos[ia + 1] + pos[ib + 1] + pos[ic + 1]) / 3, cz = (pos[ia + 2] + pos[ib + 2] + pos[ic + 2]) / 3;
+      const toEye = [eye[0] - cx, eye[1] - cy, eye[2] - cz];
+      // which paper face shows: use smoothed vertex normals (a pressed layer
+      // has sub-cell ripples that flip raw face normals and speckle the color)
+      const nvm = paper.nrm;
+      const smx = nvm[ia] + nvm[ib] + nvm[ic];
+      const smy = nvm[ia + 1] + nvm[ib + 1] + nvm[ic + 1];
+      const smz = nvm[ia + 2] + nvm[ib + 2] + nvm[ic + 2];
+      const smOk = smx * smx + smy * smy + smz * smz > 1e-16;
+      const rawToEye = nx * toEye[0] + ny * toEye[1] + nz * toEye[2];
+      const facing = smOk
+        ? smx * toEye[0] + smy * toEye[1] + smz * toEye[2] > 0
+        : rawToEye > 0;
+      // lighting normal always points at the viewer; `facing` only picks the color
+      const flip = rawToEye > 0 ? 1 : -1;
+      const fnx = nx * flip, fny = ny * flip, fnz = nz * flip;
+      const lit = pal.amb + pal.dif * Math.max(0, fnx * LIGHT[0] + fny * LIGHT[1] + fnz * LIGHT[2]);
+      const base = facing ? pal.paperFront : pal.paperBack;
+      const col = `rgb(${(base[0] * lit) | 0},${(base[1] * lit) | 0},${(base[2] * lit) | 0})`;
+      // near-horizontal triangles sort by height as well as view depth, so
+      // stacked coplanar layers (a fold pressed flat) never z-fight in the
+      // painter's sort; standing geometry keeps pure view-depth order
+      items.push({
+        depth: (p2a[2] + p2b[2] + p2c[2]) / 3 - cy * 2.5 * Math.abs(ny),
+        kind: 0, col,
+        x1: p2a[0], y1: p2a[1], x2: p2b[0], y2: p2b[1], x3: p2c[0], y3: p2c[1],
+        facing,
+      });
+    }
+    // crease scars
+    for (const h of paper.hinges) {
+      const t0 = Math.abs(h.theta0);
+      if (t0 < 0.2) continue;
+      const a = h.e0 * 3, b = h.e1 * 3;
+      if (!proj(pos[a], pos[a + 1], pos[a + 2], p2a)) continue;
+      if (!proj(pos[b], pos[b + 1], pos[b + 2], p2b)) continue;
+      // same height bias as the faces they sit on (normal from one wing)
+      const w = h.w0 * 3;
+      const e1x = pos[b] - pos[a], e1y = pos[b + 1] - pos[a + 1], e1z = pos[b + 2] - pos[a + 2];
+      const e2x = pos[w] - pos[a], e2y = pos[w + 1] - pos[a + 1], e2z = pos[w + 2] - pos[a + 2];
+      const sny = e1z * e2x - e1x * e2z;
+      const snl = Math.hypot(e1y * e2z - e1z * e2y, sny, e1x * e2y - e1y * e2x) || 1;
+      const yMid = (pos[a + 1] + pos[b + 1]) / 2;
+      items.push({
+        depth: (p2a[2] + p2b[2]) / 2 - 0.004 - yMid * 2.5 * Math.abs(sny / snl),
+        kind: 1,
+        col: h.theta0 > 0 ? pal.scar : pal.scarBack,
+        alpha: Math.min(1, t0 / 1.2),
+        x1: p2a[0], y1: p2a[1], x2: p2b[0], y2: p2b[1],
+        w: Math.max(1, FL * 0.007 / p2a[2]),
+      });
+    }
+    // actuators (drawn with the same geometry the physics collides against)
+    if (world) {
+      const PR = SIM.PARAMS.padR, PL = SIM.PARAMS.padLift;
+      if (world.pinA) pushBall(0, PL, 0, PR, pal, [-0.26, PL + 0.56, -0.26]);
+      if (world.grabs) {
+        for (const g of world.grabs) pushBall(g.pos[0], g.pos[1] + PL, g.pos[2], PR, pal, null);
+      }
+      if (world.finger) {
+        const f = world.finger, hl = f.hl || 0, ax = f.ax || [1, 0, 0];
+        pushCapsule(f.c, ax, hl, f.r, pal);
+      }
+    }
+
+    items.sort((a, b) => b.depth - a.depth);
+    for (const it of items) {
+      if (it.kind === 0) {
+        ctx.fillStyle = it.col; ctx.strokeStyle = it.col; ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.x2, it.y2); ctx.lineTo(it.x3, it.y3);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      } else if (it.kind === 1) {
+        ctx.globalAlpha = it.alpha;
+        ctx.strokeStyle = it.col; ctx.lineWidth = it.w; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.x2, it.y2); ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else if (it.kind === 2) {
+        // pad actuator, optionally with a rod
+        if (it.sx !== null) {
+          ctx.strokeStyle = it.stem; ctx.lineWidth = it.sw; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.sx, it.sy); ctx.stroke();
+        }
+        const g = ctx.createRadialGradient(it.x1 - it.r * 0.35, it.y1 - it.r * 0.4, it.r * 0.15, it.x1, it.y1, it.r);
+        g.addColorStop(0, it.hi); g.addColorStop(1, it.lo);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(it.x1, it.y1, it.r, 0, 6.2832); ctx.fill();
+      } else if (it.kind === 3) {
+        // capsule fingertip with stem
+        ctx.strokeStyle = it.stem; ctx.lineWidth = it.w * 0.2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(it.cx, it.cy); ctx.lineTo(it.sx, it.sy); ctx.stroke();
+        ctx.strokeStyle = it.lo; ctx.lineWidth = it.w;
+        ctx.beginPath(); ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.x2, it.y2); ctx.stroke();
+        ctx.strokeStyle = it.hi; ctx.lineWidth = it.w * 0.62;
+        ctx.beginPath();
+        ctx.moveTo(it.x1 - it.w * 0.06, it.y1 - it.w * 0.14);
+        ctx.lineTo(it.x2 - it.w * 0.06, it.y2 - it.w * 0.14);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function steelCol(pal, k) { const s = pal.steel; return `rgb(${(s[0] * k) | 0},${(s[1] * k) | 0},${(s[2] * k) | 0})`; }
+  function pushBall(x, y, z, r, pal, stemTo) {
+    if (!proj(x, y, z, p2a)) return;
+    const sr = FL * r / p2a[2];
+    const sw = 2 * FL * SIM.PARAMS.stemR / p2a[2];
+    let sx = null, sy = null;
+    if (stemTo && proj(stemTo[0], stemTo[1], stemTo[2], p2b)) { sx = p2b[0]; sy = p2b[1]; }
+    items.push({
+      depth: p2a[2], kind: 2, r: sr, sw,
+      x1: p2a[0], y1: p2a[1], sx, sy,
+      hi: steelCol(pal, 1.25), lo: steelCol(pal, 0.72), stem: pal.stem,
+    });
+  }
+  function pushCapsule(c, ax, hl, r, pal) {
+    const e1 = [c[0] - ax[0] * hl, c[1] - ax[1] * hl, c[2] - ax[2] * hl];
+    const e2 = [c[0] + ax[0] * hl, c[1] + ax[1] * hl, c[2] + ax[2] * hl];
+    if (!proj(e1[0], e1[1], e1[2], p2a) || !proj(e2[0], e2[1], e2[2], p2b)) return;
+    if (!proj(c[0], c[1] + 0.62, c[2], p2c)) return;
+    const depth = (p2a[2] + p2b[2]) / 2;
+    items.push({
+      depth, kind: 3,
+      w: 2 * FL * r / depth,
+      x1: p2a[0], y1: p2a[1], x2: p2b[0], y2: p2b[1],
+      cx: (p2a[0] + p2b[0]) / 2, cy: (p2a[1] + p2b[1]) / 2, sx: p2c[0], sy: p2c[1],
+      hi: steelCol(pal, 1.18), lo: steelCol(pal, 0.66), stem: pal.stem,
+    });
+  }
+  function drawDeskQuad(x0, z0, x1, z1, col, lift) {
+    const y = -0.001 - (lift || 0);
+    if (!proj(x0, y, z0, p2a)) return;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(p2a[0], p2a[1]);
+    if (!proj(x1, y, z0, p2a)) return; ctx.lineTo(p2a[0], p2a[1]);
+    if (!proj(x1, y, z1, p2a)) return; ctx.lineTo(p2a[0], p2a[1]);
+    if (!proj(x0, y, z1, p2a)) return; ctx.lineTo(p2a[0], p2a[1]);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // ---------------------------------------------------------- scenario UI
+  function buildPhasebar() {
+    const sc = SC[scName];
+    const total = SIM.scenarioDuration(sc);
+    phasebarEl.innerHTML = '';
+    phaseFills = [];
+    for (const ph of sc.phases) {
+      const seg = document.createElement('span');
+      seg.className = 'ph';
+      seg.style.flex = String(ph.dur / total);
+      const fill = document.createElement('i');
+      seg.appendChild(fill);
+      phasebarEl.appendChild(seg);
+      phaseFills.push(fill);
+    }
+  }
+  function setScenario(name) {
+    scName = name;
+    SC = SIM.getScenarios();
+    paper = SIM.makePaper();
+    doneAnnounced = false;
+    lastLabel = '';
+    running = true;
+    document.getElementById('playBtn').textContent = 'Pause';
+    for (const el of document.querySelectorAll('.card')) el.classList.toggle('active', el.dataset.sc === name);
+    buildPhasebar();
+    const nc = paper.edges.length + paper.hinges.length;
+    const sub = Math.max(8, Math.round(SIM.PARAMS.substeps * ((paper.N - 1) / 20) ** 2));
+    document.getElementById('meshOut').textContent =
+      `${paper.N}×${paper.N} grid · ${(nc / 1000).toFixed(1)}k constraints · ${sub * 60} steps/s`;
+  }
+  function updateHud(ev) {
+    const sc = SC[scName];
+    let acc = 0;
+    for (let i = 0; i < sc.phases.length; i++) {
+      const k = ev.done || i < ev.phase ? 1 : i > ev.phase ? 0
+        : Math.min(1, (paper.time - acc) / sc.phases[i].dur);
+      phaseFills[i].style.transform = `scaleX(${k})`;
+      acc += sc.phases[i].dur;
+    }
+    const label = ev.done ? 'Done — drag to look around, or replay.' : ev.label;
+    if (label !== lastLabel) {
+      lastLabel = label;
+      captionEl.innerHTML = '';
+      const b = document.createElement('b');
+      b.textContent = `Step ${ev.phase + 1}/${sc.phases.length} · `;
+      captionEl.appendChild(b);
+      captionEl.appendChild(document.createTextNode(label));
+    }
+  }
+
+  // --------------------------------------------------------------- loop
+  let lastT = performance.now(), fpsAcc = 0, fpsN = 0, fpsShown = 0;
+  function frame(now) {
+    const sc = SC[scName];
+    const worldAt = (t) => SIM.evalScenario(sc, t).world;
+    let stepped = 0;
+    if (running) {
+      const per = speed === 2 ? 2 : 1;
+      const skip = speed === 0.5 ? (slowTick = 1 - slowTick) : 0;
+      if (!skip) for (let i = 0; i < per; i++) { SIM.stepFrame(paper, worldAt, 1 / 60); stepped++; }
+    }
+    const ev = SIM.evalScenario(sc, paper.time);
+    if (ev.done && !doneAnnounced) {
+      doneAnnounced = true;
+      running = false;
+      document.getElementById('playBtn').textContent = 'Replay';
+    }
+    render(ev.world);
+    updateHud(ev);
+
+    // readouts
+    const dt = now - lastT; lastT = now;
+    fpsAcc += dt; fpsN++;
+    if (fpsAcc > 500) {
+      fpsShown = Math.round(1000 / (fpsAcc / fpsN));
+      fpsAcc = 0; fpsN = 0;
+      fpsOut.textContent = `${fpsShown} fps`;
+      let n = 0;
+      for (const h of paper.hinges) if (Math.abs(h.theta0) > 0.2) n++;
+      creaseOut.textContent = `${n} creased hinge${n === 1 ? '' : 's'}`;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ------------------------------------------------------------ controls
+  document.getElementById('playBtn').addEventListener('click', () => {
+    if (doneAnnounced) { setScenario(scName); return; }
+    running = !running;
+    document.getElementById('playBtn').textContent = running ? 'Pause' : 'Play';
+  });
+  document.getElementById('restartBtn').addEventListener('click', () => setScenario(scName));
+  document.getElementById('camBtn').addEventListener('click', () => { Object.assign(cam, CAM0); });
+  for (const el of document.querySelectorAll('.card')) {
+    el.addEventListener('click', () => setScenario(el.dataset.sc));
+  }
+  for (const b of document.querySelectorAll('#speedSeg button')) {
+    b.addEventListener('click', () => {
+      speed = Number(b.dataset.speed);
+      for (const o of document.querySelectorAll('#speedSeg button')) o.classList.toggle('on', o === b);
+    });
+  }
+
+  // bench parameters
+  for (const b of document.querySelectorAll('#gridSeg button')) {
+    b.addEventListener('click', () => {
+      SIM.PARAMS.N = Number(b.dataset.n);
+      for (const o of document.querySelectorAll('#gridSeg button')) o.classList.toggle('on', o === b);
+      setScenario(scName);
+    });
+  }
+  const fsIn = document.getElementById('fingerSpeed');
+  fsIn.addEventListener('change', () => {
+    SIM.PARAMS.fingerSpeed = Number(fsIn.value);
+    document.getElementById('fingerSpeedOut').textContent = Number(fsIn.value).toFixed(1) + '×';
+    setScenario(scName);
+  });
+  fsIn.addEventListener('input', () => {
+    document.getElementById('fingerSpeedOut').textContent = Number(fsIn.value).toFixed(1) + '×';
+  });
+  const pgIn = document.getElementById('pressGap');
+  pgIn.addEventListener('change', () => {
+    const v = Number(pgIn.value);
+    SIM.PARAMS.slideGap = v;
+    SIM.PARAMS.squeezeGap = Math.max(0.004, v - 0.008);
+    document.getElementById('pressGapOut').textContent = v.toFixed(3);
+    setScenario(scName);
+  });
+  pgIn.addEventListener('input', () => {
+    document.getElementById('pressGapOut').textContent = Number(pgIn.value).toFixed(3);
+  });
+
+  // orbit / zoom
+  let dragging = false, px = 0, py = 0, pinch = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    dragging = true; px = e.clientX; py = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    cam.az -= (e.clientX - px) * 0.0055;
+    cam.el = Math.min(1.35, Math.max(0.14, cam.el + (e.clientY - py) * 0.005));
+    px = e.clientX; py = e.clientY;
+  });
+  canvas.addEventListener('pointerup', () => { dragging = false; });
+  canvas.addEventListener('pointercancel', () => { dragging = false; });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    cam.dist = Math.min(4.5, Math.max(0.9, cam.dist * Math.exp(e.deltaY * 0.0012)));
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => { Object.assign(cam, CAM0); });
+
+  // ------------------------------------------------- headless driver hook
+  // Lets automated checks (and curious consoles) step the sim deterministically.
+  window.__lab = {
+    setScenario,
+    cam,
+    advance(sec) {
+      const sc = SC[scName];
+      const worldAt = (t) => SIM.evalScenario(sc, t).world;
+      const n = Math.round(sec * 60);
+      for (let i = 0; i < n; i++) SIM.stepFrame(paper, worldAt, 1 / 60);
+      const ev = SIM.evalScenario(sc, paper.time);
+      render(ev.world);
+      updateHud(ev);
+      return { t: paper.time, phase: ev.phase, done: ev.done };
+    },
+  };
+
+  // ---------------------------------------------------------------- boot
+  setScenario('s1');
+  if (reduced) {
+    running = false;
+    document.getElementById('playBtn').textContent = 'Play';
+    captionEl.innerHTML = '<b>Paused.</b> Press Play to run the scenario.';
+    lastLabel = null;
+  }
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
