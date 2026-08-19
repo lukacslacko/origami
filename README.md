@@ -1,10 +1,24 @@
 # Crease Lab
 
-A simplified physical model of a square sheet of paper, built as step one of a
-3D origami-robot simulation. The paper bends elastically, slips on the desk
-with stick/slip friction, and — when pressed hard enough by a fingertip —
-takes a permanent crease. Four scripted scenarios play out on an interactive
-3D bench in the browser.
+A physical model of a square sheet of paper, built as step one of a 3D
+origami-robot simulation. The paper bends elastically, slips on the desk with
+stick/slip friction, and creases plastically. Six scripted scenarios play out
+on an interactive 3D bench in the browser.
+
+Two engines share the same scenarios, renderer, and actuators:
+
+- **Adaptive (v2, default)** — `mesh2.js` + `sim2.js`: the mesh is rebuilt on
+  the fly from local curvature. Where the sheet bends tighter than a
+  refinement radius, the region refines; where the bend radius drops below
+  the crease radius (~1.5 paper thicknesses), the over-limit hinges are
+  clustered, a straight line is fitted through them in material space, and
+  that line becomes a permanent crease: the mesh conforms to it forever, its
+  plastic rest-angle profile survives every remesh, and creases can cross.
+  Off-grid folds come out straight (scenario 6's ~27° crease lands within
+  0.012 of the ideal line, angle error < 1°), and cost stays low because
+  fine mesh exists only where the paper actually bends.
+- **Grid (v1)** — `sim.js` uniform grid, CPU or graph-colored WebGPU
+  (`gpu.js`); kept for comparison and for the resolution experiments.
 
 **Live demo:** open `dist/crease-lab.html` in a browser (it is fully
 self-contained — no dependencies, no build step needed to view it).
@@ -81,20 +95,26 @@ just isotropic + broadside drag.
 
 | File | Purpose |
 | --- | --- |
-| `sim.js` | physics core + scenario scripts (runs in Node and the browser) |
-| `gpu.js` | WebGPU compute backend (same solver, graph-colored) |
+| `mesh2.js` | adaptive crease-conforming mesher (variable-density Delaunay + CDT edge enforcement + material-space state transfer) |
+| `sim2.js` | v2 adaptive engine: physics on the adaptive mesh + curvature detection, crease fitting, remeshing |
+| `sim.js` | v1 uniform-grid engine + the scenario scripts (shared by both engines) |
+| `gpu.js` | WebGPU compute backend for the v1 engine |
 | `index.template.html` | page: custom Canvas-2D painter's-algorithm 3D renderer + UI |
-| `build.js` | inlines `sim.js` + `gpu.js` into the template → `dist/crease-lab.html` |
+| `build.js` | inlines all engines into the template → `dist/crease-lab.html`, `docs/index.html` |
 | `test-grad.js` | finite-difference check of the hinge-angle gradients |
-| `test-scenarios.js` | headless behavioral tests for all four scenarios |
+| `test-mesh.js` | mesher unit tests (quality, crease connectivity, crossings, transfer) |
+| `test-scenarios.js` | behavioral tests, v1 engine |
+| `test-scenarios2.js` | behavioral + straightness acceptance tests, v2 engine |
 | `sweep.js` | parameter-sweep harness used for tuning |
 
 ## Develop
 
 ```sh
 node test-grad.js        # verify hinge gradients
-node test-scenarios.js   # run the behavioral test suite (~40 s)
-node build.js            # rebuild dist/crease-lab.html
+node test-mesh.js        # adaptive mesher unit tests
+node test-scenarios.js   # v1 engine behavioral suite (~40 s)
+node test-scenarios2.js  # v2 adaptive engine suite incl. straightness acceptance (~2 min)
+node build.js            # rebuild dist/crease-lab.html + docs/index.html
 ```
 
 The page exposes a deterministic driver for debugging:

@@ -2,11 +2,16 @@
 const fs = require('fs');
 const path = require('path');
 const tpl = fs.readFileSync(path.join(__dirname, 'index.template.html'), 'utf8');
-const sim = fs.readFileSync(path.join(__dirname, 'sim.js'), 'utf8');
-const gpu = fs.readFileSync(path.join(__dirname, 'gpu.js'), 'utf8');
-if (!tpl.includes('/* INJECT:SIM */')) throw new Error('sim inject marker missing');
-if (!tpl.includes('/* INJECT:GPU */')) throw new Error('gpu inject marker missing');
-const out = tpl.replace('/* INJECT:SIM */', () => sim).replace('/* INJECT:GPU */', () => gpu);
+const inject = {
+  'SIM': 'sim.js', 'GPU': 'gpu.js', 'MESH2': 'mesh2.js', 'SIM2': 'sim2.js',
+};
+let out = tpl;
+for (const [tag, file] of Object.entries(inject)) {
+  const marker = `/* INJECT:${tag} */`;
+  if (!out.includes(marker)) throw new Error(`${tag} inject marker missing`);
+  const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
+  out = out.replace(marker, () => src);
+}
 fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(__dirname, 'dist', 'crease-lab.html'), out);
 // standalone copy for GitHub Pages

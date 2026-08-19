@@ -380,12 +380,18 @@
         </select>
       </div>
       <div class="prow">
-        <span class="plabel">Compute</span>
-        <div class="seg" id="computeSeg" role="group" aria-label="Compute backend">
-          <button data-compute="cpu" class="on">CPU</button>
-          <button data-compute="gpu" id="gpuBtn">GPU</button>
+        <span class="plabel">Engine</span>
+        <div class="seg" id="engineSeg" role="group" aria-label="Physics engine">
+          <button data-engine="adaptive" class="on">Adaptive</button>
+          <button data-engine="cpu">Grid</button>
+          <button data-engine="gpu" id="gpuBtn">Grid·GPU</button>
         </div>
         <output id="computeOut"></output>
+      </div>
+      <div class="prow">
+        <span class="plabel">Wireframe</span>
+        <input type="checkbox" id="meshChk" style="accent-color: var(--accent); width: 16px; height: 16px;">
+        <output style="flex:1; text-align:left; font-family: var(--mono); font-size: 11px; color: var(--ink-2);">show the (re)mesh</output>
       </div>
       <div class="prow">
         <label class="plabel" for="fingerSpeed">Finger speed</label>
@@ -461,6 +467,12 @@
 /* INJECT:GPU */
 </script>
 <script>
+/* INJECT:MESH2 */
+</script>
+<script>
+/* INJECT:SIM2 */
+</script>
+<script>
 (() => {
   'use strict';
   // ------------------------------------------------------------- state
@@ -474,9 +486,11 @@
 
   let scName = 's1';
   let SC = SIM.getScenarios();
-  let paper = SIM.makePaper();
+  // engine: 'adaptive' (v2, remeshing) | 'cpu' (v1 uniform grid) | 'gpu'
+  let engineMode = 'adaptive';
+  let showMesh = false;
+  let paper = SIM2.makePaper(SC[scName]);
   let running = !reduced;
-  // compute backend: CPU by default; GPU when chosen and available
   let gpuWanted = false, gpuBackend = null, gpuBusy = false, gpuToken = 0, gpuErr = null;
   let speed = 1;
   let slowTick = 0;
@@ -639,7 +653,7 @@
       // painter's sort; standing geometry keeps pure view-depth order
       items.push({
         depth: (p2a[2] + p2b[2] + p2c[2]) / 3 - cy * 2.5 * Math.abs(ny),
-        kind: 0, col,
+        kind: 0, col, wf: true,
         x1: p2a[0], y1: p2a[1], x2: p2b[0], y2: p2b[1], x3: p2c[0], y3: p2c[1],
         facing,
       });
@@ -694,7 +708,9 @@
     items.sort((a, b) => b.depth - a.depth);
     for (const it of items) {
       if (it.kind === 0) {
-        ctx.fillStyle = it.col; ctx.strokeStyle = it.col; ctx.lineWidth = 0.8;
+        ctx.fillStyle = it.col;
+        ctx.strokeStyle = (showMesh && it.wf) ? 'rgba(60,80,110,0.35)' : it.col;
+        ctx.lineWidth = 0.8;
         ctx.beginPath();
         ctx.moveTo(it.x1, it.y1); ctx.lineTo(it.x2, it.y2); ctx.lineTo(it.x3, it.y3);
         ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -820,17 +836,15 @@
   function setScenario(name) {
     scName = name;
     SC = SIM.getScenarios();
-    paper = SIM.makePaper();
+    gpuWanted = engineMode === 'gpu';
+    paper = engineMode === 'adaptive' ? SIM2.makePaper(SC[name]) : SIM.makePaper();
     doneAnnounced = false;
     lastLabel = '';
     running = true;
     document.getElementById('playBtn').textContent = 'Pause';
     for (const el of document.querySelectorAll('.card')) el.classList.toggle('active', el.dataset.sc === name);
     buildPhasebar();
-    const nc = paper.edges.length + paper.hinges.length;
-    const sub = Math.min(256, Math.max(10, Math.round(SIM.PARAMS.substeps * Math.pow((paper.N - 1) / 20, SIM.PARAMS.subPow))));
-    document.getElementById('meshOut').textContent =
-      `${paper.N}×${paper.N} grid · ${(nc / 1000).toFixed(1)}k constraints · ${sub * 60} steps/s`;
+    updateMeshOut();
     // (re)create the GPU backend for the new paper
     const tok = ++gpuToken;
     if (gpuBackend) { gpuBackend.destroy(); gpuBackend = null; }
@@ -845,11 +859,23 @@
         if (tok !== gpuToken) return;
         gpuErr = e;
         gpuWanted = false;
+        engineMode = 'cpu';
         document.getElementById('computeOut').textContent = 'GPU failed';
         console.error('WebGPU backend failed, falling back to CPU:', e);
-        for (const o of document.querySelectorAll('#computeSeg button'))
-          o.classList.toggle('on', o.dataset.compute === 'cpu');
+        for (const o of document.querySelectorAll('#engineSeg button'))
+          o.classList.toggle('on', o.dataset.engine === 'cpu');
       });
+    }
+  }
+  function updateMeshOut() {
+    if (engineMode === 'adaptive') {
+      document.getElementById('meshOut').textContent =
+        `adaptive · ${paper.NP} verts · ${paper.creases.length} crease seg${paper.creases.length === 1 ? '' : 's'} · ${paper.remeshCount} remeshes`;
+    } else {
+      const nc = paper.edges.length + paper.hinges.length;
+      const sub = Math.min(256, Math.max(10, Math.round(SIM.PARAMS.substeps * Math.pow((paper.N - 1) / 20, SIM.PARAMS.subPow))));
+      document.getElementById('meshOut').textContent =
+        `${paper.N}×${paper.N} grid · ${(nc / 1000).toFixed(1)}k constraints · ${sub * 60} steps/s`;
     }
   }
   function updateHud(ev) {
@@ -881,7 +907,7 @@
       const per = speed === 2 ? 2 : 1;
       const skip = speed === 0.5 ? (slowTick = 1 - slowTick) : 0;
       if (!skip) {
-        if (gpuWanted) {
+        if (engineMode === 'gpu') {
           if (gpuBackend && !gpuBusy) {
             gpuBusy = true;
             const myPaper = paper, myBackend = gpuBackend;
@@ -895,6 +921,8 @@
               gpuErr = e; gpuWanted = false;
             }).finally(() => { gpuBusy = false; });
           }
+        } else if (engineMode === 'adaptive') {
+          for (let i = 0; i < per; i++) SIM2.stepFrame(paper, worldAt, 1 / 60);
         } else {
           for (let i = 0; i < per; i++) SIM.stepFrame(paper, worldAt, 1 / 60);
         }
@@ -919,6 +947,7 @@
       let n = 0;
       for (const h of paper.hinges) if (Math.abs(h.theta0) > 0.2) n++;
       creaseOut.textContent = `${n} creased hinge${n === 1 ? '' : 's'}`;
+      updateMeshOut();
     }
     requestAnimationFrame(frame);
   }
@@ -946,18 +975,21 @@
     SIM.PARAMS.N = Number(e.target.value);
     setScenario(scName);
   });
-  for (const b of document.querySelectorAll('#computeSeg button')) {
+  for (const b of document.querySelectorAll('#engineSeg button')) {
     b.addEventListener('click', () => {
-      const wantGpu = b.dataset.compute === 'gpu';
-      if (wantGpu && (typeof GPUSIM === 'undefined' || !GPUSIM.available())) {
+      const mode = b.dataset.engine;
+      if (mode === 'gpu' && (typeof GPUSIM === 'undefined' || !GPUSIM.available())) {
         document.getElementById('computeOut').textContent = 'no WebGPU';
         return;
       }
-      gpuWanted = wantGpu;
-      for (const o of document.querySelectorAll('#computeSeg button')) o.classList.toggle('on', o === b);
+      engineMode = mode;
+      document.getElementById('gridSel').disabled = mode === 'adaptive';
+      for (const o of document.querySelectorAll('#engineSeg button')) o.classList.toggle('on', o === b);
       setScenario(scName);
     });
   }
+  document.getElementById('gridSel').disabled = true; // adaptive default
+  document.getElementById('meshChk').addEventListener('change', (e) => { showMesh = e.target.checked; });
   if (typeof GPUSIM === 'undefined' || !GPUSIM.available()) {
     document.getElementById('gpuBtn').disabled = true;
     document.getElementById('gpuBtn').style.opacity = '0.4';
@@ -1012,10 +1044,12 @@
       const sc = SC[scName];
       const worldAt = (t) => SIM.evalScenario(sc, t).world;
       const n = Math.round(sec * 60);
-      for (let i = 0; i < n; i++) SIM.stepFrame(paper, worldAt, 1 / 60);
+      const eng = engineMode === 'adaptive' ? SIM2 : SIM;
+      for (let i = 0; i < n; i++) eng.stepFrame(paper, worldAt, 1 / 60);
       const ev = SIM.evalScenario(sc, paper.time);
       render(ev.world);
       updateHud(ev);
+      updateMeshOut();
       return { t: paper.time, phase: ev.phase, done: ev.done };
     },
     async gpuAdvance(sec) {
