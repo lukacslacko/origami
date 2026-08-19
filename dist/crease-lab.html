@@ -3170,9 +3170,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     paper.time += dtFrame;
     paper.frame++;
 
-    // plastic flow on crease hinges (geometric yield: curvature > 1/rCrease)
+    // plastic flow on crease hinges: same fingertip requirement as creation
+    const worldNow = worldAt(paper.time);
+    const fingersNow = worldNow.fingers || (worldNow.finger ? [worldNow.finger] : []);
     for (const h of hinges) {
       if (!h.cref) continue;
+      if (fingersNow.length === 0) continue;
+      const mx = (pos[h.e0 * 3] + pos[h.e1 * 3]) / 2;
+      const my = (pos[h.e0 * 3 + 1] + pos[h.e1 * 3 + 1]) / 2;
+      const mz = (pos[h.e0 * 3 + 2] + pos[h.e1 * 3 + 2]) / 2;
+      if (!nearAnyFinger(fingersNow, mx, my, mz)) continue;
       const th = hingeAngle(pos, h, false);
       if (th !== th) continue;
       const cont = h.thC + wrapPi(th - h.thC);
@@ -3189,7 +3196,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (paper.cooldown > 0) paper.cooldown--;
     if (paper.frame % PARAMS.detectEvery === 0 && paper.cooldown === 0) {
-      detectAndAdapt(paper, worldAt);
+      detectAndAdapt(paper, fingersNow);
     }
   }
 
@@ -3255,7 +3262,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   // -------------------------------------------- curvature -> adapt / crease
-  function detectAndAdapt(paper) {
+  function nearAnyFinger(fingers, x, y, z) {
+    for (const f of fingers) {
+      const fr = f.r + 0.06, fx = f.ax || [1, 0, 0], hl = f.hl || 0;
+      let dx = x - f.c[0], dy = y - f.c[1], dz = z - f.c[2];
+      let sd = dx * fx[0] + dy * fx[1] + dz * fx[2];
+      if (sd > hl) sd = hl; else if (sd < -hl) sd = -hl;
+      dx -= sd * fx[0]; dy -= sd * fx[1]; dz -= sd * fx[2];
+      if (dx * dx + dy * dy + dz * dz <= fr * fr) return true;
+    }
+    return false;
+  }
+
+  function detectAndAdapt(paper, fingersNow) {
     const P = PARAMS;
     // refinement field on a 64^2 grid, with age-based coarsening
     const G = 64;
@@ -3283,6 +3302,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (want < sg[id] - 1e-9) { sg[id] = want; changedCells++; }
       }
       if (!h.cref && kappa > 1 / P.rCrease) {
+        // creasing requires a pressing fingertip: with a contact cushion ~20x
+        // thicker than real paper, a fold merely laid closed reaches the same
+        // radius as a pressed one, so geometry alone cannot distinguish them.
+        // (A true force-based criterion needs force-limited contacts - future.)
+        const mx = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2;
+        const my = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2;
+        const mz = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2;
+        if (!nearAnyFinger(fingersNow, mx, my, mz)) continue;
         // exclude shoulders of existing creases (parallel & adjacent)
         let shoulder = false;
         for (const c of paper.creases) {

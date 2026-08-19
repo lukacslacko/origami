@@ -10,13 +10,18 @@ Two engines share the same scenarios, renderer, and actuators:
 - **Adaptive (v2, default)** — `mesh2.js` + `sim2.js`: the mesh is rebuilt on
   the fly from local curvature. Where the sheet bends tighter than a
   refinement radius, the region refines; where the bend radius drops below
-  the crease radius (~1.5 paper thicknesses), the over-limit hinges are
-  clustered, a straight line is fitted through them in material space, and
-  that line becomes a permanent crease: the mesh conforms to it forever, its
-  plastic rest-angle profile survives every remesh, and creases can cross.
-  Off-grid folds come out straight (scenario 6's ~27° crease lands within
-  0.012 of the ideal line, angle error < 1°), and cost stays low because
-  fine mesh exists only where the paper actually bends.
+  the crease radius (~1.5 paper thicknesses) *under a pressing fingertip*,
+  the over-limit hinges are clustered, a straight line is fitted through
+  them in material space, and that line becomes a permanent crease: the mesh
+  conforms to it forever, its plastic rest-angle profile survives every
+  remesh, and creases can cross. Off-grid folds come out straight (scenario
+  6's ~27° crease lands within a few % of the ideal line, angle error < 3°),
+  and cost stays low because fine mesh exists only where the paper bends.
+  The fingertip requirement is deliberate: the contact cushion is ~20× a
+  real sheet's thickness, so a fold merely laid closed bottoms out at the
+  same radius as a pressed one — geometry alone cannot tell them apart, and
+  without the gate paper would crease under its own weight. A force-based
+  criterion needs force-limited contacts (future work).
 - **Grid (v1)** — `sim.js` uniform grid, CPU or graph-colored WebGPU
   (`gpu.js`); kept for comparison and for the resolution experiments.
 
