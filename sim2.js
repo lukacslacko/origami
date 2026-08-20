@@ -105,8 +105,9 @@
     if (transferSrc) {
       const r = MESH2.transfer(transferSrc.uv, transferSrc.tris, transferSrc.pos, transferSrc.vel, uv);
       pos = r.pos; vel = r.vel;
-      // damp interpolation noise
-      for (let i = 0; i < vel.length; i++) vel[i] *= 0.4;
+      // mild damp of interpolation noise (heavy damping here bled the energy
+      // out of standing folds across repeated remeshes)
+      for (let i = 0; i < vel.length; i++) vel[i] *= 0.8;
     } else {
       pos = new Float64Array(n * 3);
       vel = new Float64Array(n * 3);
@@ -180,6 +181,24 @@
       }
       anchorMap.set(u.toFixed(6) + ',' + v.toFixed(6), bi);
     }
+    // flat (SoA) mirrors of the constraint data for the hot solver loops
+    const ne = edges.length, nh = hinges.length;
+    const eIdx = new Int32Array(ne * 2);
+    const eRest = new Float64Array(ne);
+    edges.forEach((e, i) => { eIdx[i * 2] = e.a; eIdx[i * 2 + 1] = e.b; eRest[i] = e.rest; });
+    const hIdx = new Int32Array(nh * 4);
+    const hTheta0 = new Float64Array(nh);
+    const hThC = new Float64Array(nh);
+    const hAlphaHard = new Float64Array(nh); // alphaH, pre-softened where creased
+    const hDamp = new Float64Array(nh);
+    const hLperp = new Float64Array(nh);
+    hinges.forEach((h, i) => {
+      hIdx[i * 4] = h.e0; hIdx[i * 4 + 1] = h.e1; hIdx[i * 4 + 2] = h.w0; hIdx[i * 4 + 3] = h.w1;
+      hTheta0[i] = h.theta0;
+      hAlphaHard[i] = h.soft ? h.alphaH * PARAMS.creaseSoften : h.alphaH;
+      hDamp[i] = h.damp;
+      hLperp[i] = h.lperp;
+    });
     Object.assign(paper, {
       NP: n, uv, tris, pos, vel,
       prev: new Float64Array(n * 3),
@@ -187,12 +206,14 @@
       baseInvMass,
       nrm: new Float64Array(n * 3),
       edges, hinges, anchorMap,
+      eIdx, eRest, hIdx, hTheta0, hThC, hAlphaHard, hDamp, hLperp,
     });
     // seed thC from current geometry, unwrapped near theta0
-    for (const h of paper.hinges) {
+    paper.hinges.forEach((h, i) => {
       const th = hingeAngle(paper.pos, h, false);
       if (th === th) h.thC = h.theta0 + wrapPi(th - h.theta0);
-    }
+      paper.hThC[i] = h.thC;
+    });
   }
   function triArea(uv, a, b, c) {
     return 0.5 * Math.abs(
@@ -236,6 +257,37 @@
   const _g = new Float64Array(12);
   function hingeAngle(pos, h, wantGrad) {
     const p0 = h.e0 * 3, p1 = h.e1 * 3, p2 = h.w0 * 3, p3 = h.w1 * 3;
+    const x0x = pos[p0], x0y = pos[p0 + 1], x0z = pos[p0 + 2];
+    const ex = pos[p1] - x0x, ey = pos[p1 + 1] - x0y, ez = pos[p1 + 2] - x0z;
+    const ax = pos[p2] - x0x, ay = pos[p2 + 1] - x0y, az = pos[p2 + 2] - x0z;
+    const bx = pos[p3] - x0x, by = pos[p3 + 1] - x0y, bz = pos[p3 + 2] - x0z;
+    const n1x = ey * az - ez * ay, n1y = ez * ax - ex * az, n1z = ex * ay - ey * ax;
+    const n2x = by * ez - bz * ey, n2y = bz * ex - bx * ez, n2z = bx * ey - by * ex;
+    const elen = Math.sqrt(ex * ex + ey * ey + ez * ez);
+    const n1sq = n1x * n1x + n1y * n1y + n1z * n1z;
+    const n2sq = n2x * n2x + n2y * n2y + n2z * n2z;
+    if (elen < 1e-10 || n1sq < 1e-16 || n2sq < 1e-16) return NaN;
+    const cx = n1y * n2z - n1z * n2y, cy = n1z * n2x - n1x * n2z, cz = n1x * n2y - n1y * n2x;
+    const theta = Math.atan2((cx * ex + cy * ey + cz * ez) / elen, n1x * n2x + n1y * n2y + n1z * n2z);
+    if (!wantGrad) return theta;
+    const s2 = -elen / n1sq, s3 = -elen / n2sq;
+    const g2x = s2 * n1x, g2y = s2 * n1y, g2z = s2 * n1z;
+    const g3x = s3 * n2x, g3y = s3 * n2y, g3z = s3 * n2z;
+    const inv_ee = 1 / (elen * elen);
+    const a2 = (ax * ex + ay * ey + az * ez) * inv_ee - 1;
+    const a3 = (bx * ex + by * ey + bz * ez) * inv_ee - 1;
+    _g[0] = a2 * g2x + a3 * g3x; _g[1] = a2 * g2y + a3 * g3y; _g[2] = a2 * g2z + a3 * g3z;
+    _g[3] = -(1 + a2) * g2x - (1 + a3) * g3x;
+    _g[4] = -(1 + a2) * g2y - (1 + a3) * g3y;
+    _g[5] = -(1 + a2) * g2z - (1 + a3) * g3z;
+    _g[6] = g2x; _g[7] = g2y; _g[8] = g2z;
+    _g[9] = g3x; _g[10] = g3y; _g[11] = g3z;
+    return theta;
+  }
+
+  // flat-index variant of hingeAngle for the solver loop
+  function hingeAngleFlat(pos, hIdx, k, wantGrad) {
+    const p0 = hIdx[k * 4] * 3, p1 = hIdx[k * 4 + 1] * 3, p2 = hIdx[k * 4 + 2] * 3, p3 = hIdx[k * 4 + 3] * 3;
     const x0x = pos[p0], x0y = pos[p0 + 1], x0z = pos[p0 + 2];
     const ex = pos[p1] - x0x, ey = pos[p1 + 1] - x0y, ez = pos[p1 + 2] - x0z;
     const ax = pos[p2] - x0x, ay = pos[p2 + 1] - x0y, az = pos[p2 + 2] - x0z;
@@ -344,67 +396,67 @@
         }
       });
 
-      // distance constraints (hard)
-      for (let k = 0; k < edges.length; k++) {
-        const e = edges[k];
-        const pa = e.a * 3, pb = e.b * 3;
-        const wa = invMass[e.a], wb = invMass[e.b];
+      // distance constraints (hard, flat arrays)
+      const eIdx = paper.eIdx, eRest = paper.eRest, nE = eRest.length;
+      for (let k = 0; k < nE; k++) {
+        const ia = eIdx[k * 2], ib = eIdx[k * 2 + 1];
+        const pa = ia * 3, pb = ib * 3;
+        const wa = invMass[ia], wb = invMass[ib];
         const ws = wa + wb;
         if (ws === 0) continue;
         let dx = pos[pb] - pos[pa], dy = pos[pb + 1] - pos[pa + 1], dz = pos[pb + 2] - pos[pa + 2];
         const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-12) continue;
-        const f = -(len - e.rest) / (ws * len);
+        const f = -(len - eRest[k]) / (ws * len);
         dx *= f; dy *= f; dz *= f;
         pos[pa] -= wa * dx; pos[pa + 1] -= wa * dy; pos[pa + 2] -= wa * dz;
         pos[pb] += wb * dx; pos[pb + 1] += wb * dy; pos[pb + 2] += wb * dz;
       }
 
-      // hinges
+      // hinges (flat arrays; thC lives in hThC, synced to objects per frame)
       const invDt2 = 1 / (dt * dt);
-      for (let k = 0; k < hinges.length; k++) {
-        const h = hinges[k];
-        const thRaw = hingeAngle(pos, h, true);
+      const hIdx = paper.hIdx, hTheta0 = paper.hTheta0, hThC = paper.hThC;
+      const hAlphaHard = paper.hAlphaHard, hDamp = paper.hDamp, hLperp = paper.hLperp;
+      const nH = hTheta0.length;
+      for (let k = 0; k < nH; k++) {
+        const thRaw = hingeAngleFlat(pos, hIdx, k, true);
         if (thRaw !== thRaw) continue;
-        const th = h.thC + wrapPi(thRaw - h.thC);
-        h.thC = th;
-        const Cc = th - h.theta0;
+        const th = hThC[k] + wrapPi(thRaw - hThC[k]);
+        hThC[k] = th;
+        const Cc = th - hTheta0[k];
         const g = _g;
-        const w0 = invMass[h.e0], w1 = invMass[h.e1], w2 = invMass[h.w0], w3 = invMass[h.w1];
-        let denom =
-          w0 * (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]) +
-          w1 * (g[3] * g[3] + g[4] * g[4] + g[5] * g[5]) +
-          w2 * (g[6] * g[6] + g[7] * g[7] + g[8] * g[8]) +
-          w3 * (g[9] * g[9] + g[10] * g[10] + g[11] * g[11]);
-        const alphaT = (h.soft ? h.alphaH * PARAMS.creaseSoften : h.alphaH) * invDt2;
-        denom = denom * (1 + h.damp) + alphaT;
+        const i0 = hIdx[k * 4], i1 = hIdx[k * 4 + 1], i2 = hIdx[k * 4 + 2], i3 = hIdx[k * 4 + 3];
+        const w0 = invMass[i0], w1 = invMass[i1], w2 = invMass[i2], w3 = invMass[i3];
+        const q0 = g[0] * g[0] + g[1] * g[1] + g[2] * g[2];
+        const q1 = g[3] * g[3] + g[4] * g[4] + g[5] * g[5];
+        const q2 = g[6] * g[6] + g[7] * g[7] + g[8] * g[8];
+        const q3 = g[9] * g[9] + g[10] * g[10] + g[11] * g[11];
+        const damp = hDamp[k];
+        let denom = (w0 * q0 + w1 * q1 + w2 * q2 + w3 * q3) * (1 + damp) + hAlphaHard[k] * invDt2;
         if (denom < 1e-12) continue;
         let Cdot = 0;
-        let pp = h.e0 * 3;
+        let pp = i0 * 3;
         Cdot += g[0] * (pos[pp] - prev[pp]) + g[1] * (pos[pp + 1] - prev[pp + 1]) + g[2] * (pos[pp + 2] - prev[pp + 2]);
-        pp = h.e1 * 3;
+        pp = i1 * 3;
         Cdot += g[3] * (pos[pp] - prev[pp]) + g[4] * (pos[pp + 1] - prev[pp + 1]) + g[5] * (pos[pp + 2] - prev[pp + 2]);
-        pp = h.w0 * 3;
+        pp = i2 * 3;
         Cdot += g[6] * (pos[pp] - prev[pp]) + g[7] * (pos[pp + 1] - prev[pp + 1]) + g[8] * (pos[pp + 2] - prev[pp + 2]);
-        pp = h.w1 * 3;
+        pp = i3 * 3;
         Cdot += g[9] * (pos[pp] - prev[pp]) + g[10] * (pos[pp + 1] - prev[pp + 1]) + g[11] * (pos[pp + 2] - prev[pp + 2]);
-        let dl = (-Cc - h.damp * Cdot) / denom;
-        // displacement limiter: never move a vertex more than a fraction of
-        // the local scale in one solve (anti-ringing safety at fine bands)
-        const gmax = Math.sqrt(Math.max(
-          g[0] * g[0] + g[1] * g[1] + g[2] * g[2], g[3] * g[3] + g[4] * g[4] + g[5] * g[5],
-          g[6] * g[6] + g[7] * g[7] + g[8] * g[8], g[9] * g[9] + g[10] * g[10] + g[11] * g[11]));
+        let dl = (-Cc - damp * Cdot) / denom;
+        // displacement limiter (anti-ringing safety at fine bands)
+        const gmax2 = Math.max(q0, q1, q2, q3);
         const wmax = Math.max(w0, w1, w2, w3);
-        const maxMove = Math.abs(dl) * wmax * gmax;
-        const cap = 0.35 * h.lperp;
+        const maxMove = Math.abs(dl) * wmax * Math.sqrt(gmax2);
+        const cap = 0.35 * hLperp[k];
         if (maxMove > cap) dl *= cap / maxMove;
-        let p = h.e0 * 3;
+        let p = i0 * 3;
         pos[p] += w0 * dl * g[0]; pos[p + 1] += w0 * dl * g[1]; pos[p + 2] += w0 * dl * g[2];
-        p = h.e1 * 3;
+        p = i1 * 3;
         pos[p] += w1 * dl * g[3]; pos[p + 1] += w1 * dl * g[4]; pos[p + 2] += w1 * dl * g[5];
-        p = h.w0 * 3;
+        p = i2 * 3;
         pos[p] += w2 * dl * g[6]; pos[p + 1] += w2 * dl * g[7]; pos[p + 2] += w2 * dl * g[8];
-        p = h.w1 * 3;
+        p = i3 * 3;
         pos[p] += w3 * dl * g[9]; pos[p + 1] += w3 * dl * g[10]; pos[p + 2] += w3 * dl * g[11];
       }
 
@@ -484,11 +536,14 @@
     }
     paper.time += dtFrame;
     paper.frame++;
+    // sync continuous angles back to the hinge objects (detection & seeding)
+    for (let k = 0; k < hinges.length; k++) hinges[k].thC = paper.hThC[k];
 
     // plastic flow on crease hinges: same fingertip requirement as creation
     const worldNow = worldAt(paper.time);
     const fingersNow = worldNow.fingers || (worldNow.finger ? [worldNow.finger] : []);
-    for (const h of hinges) {
+    for (let hi = 0; hi < hinges.length; hi++) {
+      const h = hinges[hi];
       if (!h.cref) continue;
       if (fingersNow.length === 0) continue;
       const mx = (pos[h.e0 * 3] + pos[h.e1 * 3]) / 2;
@@ -504,6 +559,7 @@
         const sg = Math.sign(ex);
         h.theta0 += PARAMS.plasticRate * (ex - sg * yieldA);
         h.theta0 = Math.max(-PARAMS.maxTheta0, Math.min(PARAMS.maxTheta0, h.theta0));
+        paper.hTheta0[hi] = h.theta0;
         const c = paper.creases[h.cref.ci];
         writeProfile(c, (h.cref.s0 + h.cref.s1) / 2, h.theta0);
       }
@@ -515,60 +571,85 @@
     }
   }
 
+  // flat-grid self collision: dense typed-array grid over the current bbox
+  let _heads = new Int32Array(0);
+  let _next = new Int32Array(0);
   function selfCollide(paper) {
     const P = PARAMS;
-    const r = P.selfR, cell = r * 2.0001;
+    const r = P.selfR, cell = r * 2.0001, inv = 1 / cell;
     const { pos, prev, invMass, uv } = paper;
-    const skipR = P.selfR * 1.5;
-    for (const arr of _hash.values()) { arr.length = 0; _pool.push(arr); }
-    _hash.clear();
-    for (let i = 0; i < paper.NP; i++) {
+    const NP = paper.NP;
+    const skipR2 = (P.selfR * 1.5) * (P.selfR * 1.5);
+    // bbox
+    let x0 = 1e9, y0 = 1e9, z0 = 1e9, x1 = -1e9, y1 = -1e9, z1 = -1e9;
+    for (let i = 0; i < NP; i++) {
       const p = i * 3;
-      const key =
-        (Math.floor(pos[p] / cell) + 512) +
-        (Math.floor(pos[p + 1] / cell) + 512) * 1024 +
-        (Math.floor(pos[p + 2] / cell) + 512) * 1048576;
-      let arr = _hash.get(key);
-      if (!arr) { arr = _pool.pop() || []; _hash.set(key, arr); }
-      arr.push(i);
+      if (pos[p] < x0) x0 = pos[p]; if (pos[p] > x1) x1 = pos[p];
+      if (pos[p + 1] < y0) y0 = pos[p + 1]; if (pos[p + 1] > y1) y1 = pos[p + 1];
+      if (pos[p + 2] < z0) z0 = pos[p + 2]; if (pos[p + 2] > z1) z1 = pos[p + 2];
+    }
+    const nx = Math.min(256, Math.max(1, Math.floor((x1 - x0) * inv) + 1));
+    const ny = Math.min(256, Math.max(1, Math.floor((y1 - y0) * inv) + 1));
+    const nz = Math.min(256, Math.max(1, Math.floor((z1 - z0) * inv) + 1));
+    const ncell = nx * ny * nz;
+    if (_heads.length < ncell) _heads = new Int32Array(Math.ceil(ncell * 1.5));
+    if (_next.length < NP) _next = new Int32Array(NP * 2);
+    _heads.fill(-1, 0, ncell);
+    const cx0 = x0, cy0 = y0, cz0 = z0;
+    const cellOf = (p) => {
+      let cx = ((pos[p] - cx0) * inv) | 0; if (cx >= nx) cx = nx - 1;
+      let cy = ((pos[p + 1] - cy0) * inv) | 0; if (cy >= ny) cy = ny - 1;
+      let cz = ((pos[p + 2] - cz0) * inv) | 0; if (cz >= nz) cz = nz - 1;
+      return (cz * ny + cy) * nx + cx;
+    };
+    for (let i = 0; i < NP; i++) {
+      const c = cellOf(i * 3);
+      _next[i] = _heads[c];
+      _heads[c] = i;
     }
     const r2 = r * r;
-    for (let i = 0; i < paper.NP; i++) {
+    for (let i = 0; i < NP; i++) {
       const p = i * 3;
-      const cx = Math.floor(pos[p] / cell) + 512;
-      const cy = Math.floor(pos[p + 1] / cell) + 512;
-      const cz = Math.floor(pos[p + 2] / cell) + 512;
-      for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) for (let oz = -1; oz <= 1; oz++) {
-        const arr = _hash.get((cx + ox) + (cy + oy) * 1024 + (cz + oz) * 1048576);
-        if (!arr) continue;
-        for (let nn = 0; nn < arr.length; nn++) {
-          const j = arr[nn];
-          if (j <= i) continue;
-          // material-space proximity: continuum neighbors can't collide
-          const du = uv[i * 2] - uv[j * 2], dvv = uv[i * 2 + 1] - uv[j * 2 + 1];
-          if (du * du + dvv * dvv < skipR * skipR) continue;
-          const q = j * 3;
-          const dx = pos[q] - pos[p], dy = pos[q + 1] - pos[p + 1], dz = pos[q + 2] - pos[p + 2];
-          const d2 = dx * dx + dy * dy + dz * dz;
-          if (d2 < r2 && d2 > 1e-14) {
-            const d = Math.sqrt(d2);
-            const wi = invMass[i], wj = invMass[j], ws = wi + wj;
-            if (ws === 0) continue;
-            const corr = 0.8 * (r - d) / d / ws;
-            pos[p] -= wi * corr * dx; pos[p + 1] -= wi * corr * dy; pos[p + 2] -= wi * corr * dz;
-            pos[q] += wj * corr * dx; pos[q + 1] += wj * corr * dy; pos[q + 2] += wj * corr * dz;
-            const nx = dx / d, ny = dy / d, nz = dz / d;
-            let sx = (pos[p] - prev[p]) - (pos[q] - prev[q]);
-            let sy = (pos[p + 1] - prev[p + 1]) - (pos[q + 1] - prev[q + 1]);
-            let sz = (pos[p + 2] - prev[p + 2]) - (pos[q + 2] - prev[q + 2]);
-            const sn = sx * nx + sy * ny + sz * nz;
-            sx -= sn * nx; sy -= sn * ny; sz -= sn * nz;
-            const stl = Math.sqrt(sx * sx + sy * sy + sz * sz);
-            if (stl > 1e-12) {
-              const f = 0.5 * Math.min(1, P.muPaper * (r - d) / stl);
-              const fi = (wi / ws) * f, fj = (wj / ws) * f;
-              pos[p] -= fi * sx; pos[p + 1] -= fi * sy; pos[p + 2] -= fi * sz;
-              pos[q] += fj * sx; pos[q + 1] += fj * sy; pos[q + 2] += fj * sz;
+      let cx = ((pos[p] - cx0) * inv) | 0; if (cx >= nx) cx = nx - 1;
+      let cy = ((pos[p + 1] - cy0) * inv) | 0; if (cy >= ny) cy = ny - 1;
+      let cz = ((pos[p + 2] - cz0) * inv) | 0; if (cz >= nz) cz = nz - 1;
+      const ui = uv[i * 2], vi = uv[i * 2 + 1];
+      const wi = invMass[i];
+      for (let oz = -1; oz <= 1; oz++) {
+        const zc = cz + oz; if (zc < 0 || zc >= nz) continue;
+        for (let oy = -1; oy <= 1; oy++) {
+          const yc = cy + oy; if (yc < 0 || yc >= ny) continue;
+          for (let ox = -1; ox <= 1; ox++) {
+            const xc = cx + ox; if (xc < 0 || xc >= nx) continue;
+            let j = _heads[(zc * ny + yc) * nx + xc];
+            for (; j >= 0; j = _next[j]) {
+              if (j <= i) continue;
+              const du = ui - uv[j * 2], dvv = vi - uv[j * 2 + 1];
+              if (du * du + dvv * dvv < skipR2) continue;
+              const q = j * 3;
+              const dx = pos[q] - pos[p], dy = pos[q + 1] - pos[p + 1], dz = pos[q + 2] - pos[p + 2];
+              const d2 = dx * dx + dy * dy + dz * dz;
+              if (d2 < r2 && d2 > 1e-14) {
+                const d = Math.sqrt(d2);
+                const wj = invMass[j], ws = wi + wj;
+                if (ws === 0) continue;
+                const corr = 0.8 * (r - d) / d / ws;
+                pos[p] -= wi * corr * dx; pos[p + 1] -= wi * corr * dy; pos[p + 2] -= wi * corr * dz;
+                pos[q] += wj * corr * dx; pos[q + 1] += wj * corr * dy; pos[q + 2] += wj * corr * dz;
+                const nnx = dx / d, nny = dy / d, nnz = dz / d;
+                let sx = (pos[p] - prev[p]) - (pos[q] - prev[q]);
+                let sy = (pos[p + 1] - prev[p + 1]) - (pos[q + 1] - prev[q + 1]);
+                let sz = (pos[p + 2] - prev[p + 2]) - (pos[q + 2] - prev[q + 2]);
+                const sn = sx * nnx + sy * nny + sz * nnz;
+                sx -= sn * nnx; sy -= sn * nny; sz -= sn * nnz;
+                const stl = Math.sqrt(sx * sx + sy * sy + sz * sz);
+                if (stl > 1e-12) {
+                  const f = 0.5 * Math.min(1, P.muPaper * (r - d) / stl);
+                  const fi = (wi / ws) * f, fj = (wj / ws) * f;
+                  pos[p] -= fi * sx; pos[p + 1] -= fi * sy; pos[p + 2] -= fi * sz;
+                  pos[q] += fj * sx; pos[q + 1] += fj * sy; pos[q + 2] += fj * sz;
+                }
+              }
             }
           }
         }

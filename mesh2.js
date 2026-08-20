@@ -470,11 +470,82 @@
     return { uv, tris, kind, creaseSample, creaseEdges, missingCreaseEdges: missing };
   }
 
+
+  // cubic PN-triangle evaluation: corners P1..P3 with unit normals N1..N3,
+  // barycentric (w1,w2,w3); writes the curved-surface point into out[o..o+2]
+  function pnEval(P, N, ia, ib, ic, w1, w2, w3, out, o) {
+    const p = (base, d) => P[base + d];
+    // edge control points: b_ij = (2Pi + Pj - ((Pj-Pi).Ni) Ni) / 3
+    const ctrl = (bi, bj, ni, out3) => {
+      const dx = P[bj] - P[bi], dy = P[bj + 1] - P[bi + 1], dz = P[bj + 2] - P[bi + 2];
+      const dn = dx * N[ni] + dy * N[ni + 1] + dz * N[ni + 2];
+      out3[0] = (2 * P[bi] + P[bj] - dn * N[ni]) / 3;
+      out3[1] = (2 * P[bi + 1] + P[bj + 1] - dn * N[ni + 1]) / 3;
+      out3[2] = (2 * P[bi + 2] + P[bj + 2] - dn * N[ni + 2]) / 3;
+    };
+    const b210 = [0, 0, 0], b120 = [0, 0, 0], b021 = [0, 0, 0];
+    const b012 = [0, 0, 0], b102 = [0, 0, 0], b201 = [0, 0, 0];
+    ctrl(ia, ib, ia, b210); ctrl(ib, ia, ib, b120);
+    ctrl(ib, ic, ib, b021); ctrl(ic, ib, ic, b012);
+    ctrl(ic, ia, ic, b102); ctrl(ia, ic, ia, b201);
+    const w11 = w1 * w1, w22 = w2 * w2, w33 = w3 * w3;
+    for (let d = 0; d < 3; d++) {
+      const E = (b210[d] + b120[d] + b021[d] + b012[d] + b102[d] + b201[d]) / 6;
+      const V = (P[ia + d] + P[ib + d] + P[ic + d]) / 3;
+      const b111 = E + (E - V) / 2;
+      out[o + d] =
+        P[ia + d] * w11 * w1 + P[ib + d] * w22 * w2 + P[ic + d] * w33 * w3 +
+        3 * b210[d] * w11 * w2 + 3 * b120[d] * w1 * w22 +
+        3 * b021[d] * w22 * w3 + 3 * b012[d] * w2 * w33 +
+        3 * b102[d] * w1 * w33 + 3 * b201[d] * w11 * w3 +
+        6 * b111 * w1 * w2 * w3;
+    }
+  }
+
   // ------------------------------------------------------ state transfer
-  // Interpolate world positions/velocities for newUV from an old mesh using
-  // barycentric coordinates in material space.
+  // Interpolate world positions/velocities for newUV from an old mesh.
+  // Positions use cubic PN-triangle (point-normal) patches so curved regions
+  // keep their convexity — plain barycentric interpolation lands on chords,
+  // contracting curved geometry toward the center of curvature a little on
+  // EVERY remesh, which flattens standing folds over dozens of remeshes.
+  // Triangles adjacent to sharp ridges (corner normals far from the face
+  // normal) fall back to linear so creases are not rounded.
   function transfer(oldUV, oldTris, oldPos, oldVel, newUV) {
     const nOld = oldUV.length / 2;
+    // area-weighted vertex normals of the old mesh (for PN patches)
+    const vn = new Float64Array(nOld * 3);
+    for (let t = 0; t < oldTris.length; t += 3) {
+      const a = oldTris[t] * 3, b = oldTris[t + 1] * 3, c = oldTris[t + 2] * 3;
+      const ux = oldPos[b] - oldPos[a], uy = oldPos[b + 1] - oldPos[a + 1], uz = oldPos[b + 2] - oldPos[a + 2];
+      const vx = oldPos[c] - oldPos[a], vy = oldPos[c + 1] - oldPos[a + 1], vz = oldPos[c + 2] - oldPos[a + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      vn[a] += nx; vn[a + 1] += ny; vn[a + 2] += nz;
+      vn[b] += nx; vn[b + 1] += ny; vn[b + 2] += nz;
+      vn[c] += nx; vn[c + 1] += ny; vn[c + 2] += nz;
+    }
+    for (let i = 0; i < nOld; i++) {
+      const l = Math.hypot(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]);
+      if (l > 1e-12) { vn[i * 3] /= l; vn[i * 3 + 1] /= l; vn[i * 3 + 2] /= l; }
+    }
+    // per-triangle smoothness: PN only where corner normals agree with the
+    // face normal (never smooth across a crease ridge)
+    const COS40 = 0.766;
+    const smoothTri = new Uint8Array(oldTris.length / 3);
+    for (let t = 0; t < oldTris.length; t += 3) {
+      const a = oldTris[t] * 3, b = oldTris[t + 1] * 3, c = oldTris[t + 2] * 3;
+      const ux = oldPos[b] - oldPos[a], uy = oldPos[b + 1] - oldPos[a + 1], uz = oldPos[b + 2] - oldPos[a + 2];
+      const vx = oldPos[c] - oldPos[a], vy = oldPos[c + 1] - oldPos[a + 1], vz = oldPos[c + 2] - oldPos[a + 2];
+      let fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+      const fl = Math.hypot(fx, fy, fz);
+      let ok = fl > 1e-14;
+      if (ok) {
+        fx /= fl; fy /= fl; fz /= fl;
+        for (const q of [a, b, c]) {
+          if (vn[q] * fx + vn[q + 1] * fy + vn[q + 2] * fz < COS40) { ok = false; break; }
+        }
+      }
+      smoothTri[t / 3] = ok ? 1 : 0;
+    }
     // bucket old triangles
     const G = 48;
     const buckets = Array.from({ length: G * G }, () => []);
@@ -522,15 +593,18 @@
         continue;
       }
       const { t, w } = best;
+      const ia = oldTris[t] * 3, ib = oldTris[t + 1] * 3, ic = oldTris[t + 2] * 3;
+      // velocities: linear is fine
       for (let d = 0; d < 3; d++) {
-        pos[i * 3 + d] =
-          w[0] * oldPos[oldTris[t] * 3 + d] +
-          w[1] * oldPos[oldTris[t + 1] * 3 + d] +
-          w[2] * oldPos[oldTris[t + 2] * 3 + d];
-        vel[i * 3 + d] =
-          w[0] * oldVel[oldTris[t] * 3 + d] +
-          w[1] * oldVel[oldTris[t + 1] * 3 + d] +
-          w[2] * oldVel[oldTris[t + 2] * 3 + d];
+        vel[i * 3 + d] = w[0] * oldVel[ia + d] + w[1] * oldVel[ib + d] + w[2] * oldVel[ic + d];
+      }
+      const interiorish = Math.min(w[0], w[1], w[2]) > -1e-6;
+      if (smoothTri[t / 3] && interiorish) {
+        pnEval(oldPos, vn, ia, ib, ic, w[0], w[1], w[2], pos, i * 3);
+      } else {
+        for (let d = 0; d < 3; d++) {
+          pos[i * 3 + d] = w[0] * oldPos[ia + d] + w[1] * oldPos[ib + d] + w[2] * oldPos[ic + d];
+        }
       }
     }
     return { pos, vel };

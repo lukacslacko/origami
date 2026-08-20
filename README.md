@@ -112,6 +112,17 @@ just isotropic + broadside drag.
 | `test-scenarios2.js` | behavioral + straightness acceptance tests, v2 engine |
 | `sweep.js` | parameter-sweep harness used for tuning |
 
+## Notes on the adaptive transfer
+
+Remeshing interpolates state between meshes. Linear (barycentric)
+interpolation lands on chords — inside every curve — so each remesh contracts
+curved geometry toward its center of curvature; over dozens of remeshes this
+flattened standing folds ("the paper collapses under its own weight").
+Positions therefore transfer through cubic PN-triangle patches built from the
+old mesh's vertex normals, which preserve convexity; triangles adjacent to
+sharp ridges fall back to linear so creases are not rounded. The adaptive
+resolution is adjustable in the bench (base 1/22–1/44, detail 1/88–1/256).
+
 ## Develop
 
 ```sh

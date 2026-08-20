@@ -389,6 +389,20 @@
         <output id="computeOut"></output>
       </div>
       <div class="prow">
+        <span class="plabel">Base · Detail</span>
+        <select id="baseSel" aria-label="Adaptive base resolution">
+          <option value="22" selected>1/22</option>
+          <option value="32">1/32</option>
+          <option value="44">1/44</option>
+        </select>
+        <select id="detailSel" aria-label="Adaptive fine resolution">
+          <option value="88" selected>1/88</option>
+          <option value="128">1/128</option>
+          <option value="176">1/176</option>
+          <option value="256">1/256</option>
+        </select>
+      </div>
+      <div class="prow">
         <span class="plabel">Wireframe</span>
         <input type="checkbox" id="meshChk" style="accent-color: var(--accent); width: 16px; height: 16px;">
         <output style="flex:1; text-align:left; font-family: var(--mono); font-size: 11px; color: var(--ink-2);">show the (re)mesh</output>
@@ -984,11 +998,25 @@
       }
       engineMode = mode;
       document.getElementById('gridSel').disabled = mode === 'adaptive';
+      syncAdaptiveControls();
       for (const o of document.querySelectorAll('#engineSeg button')) o.classList.toggle('on', o === b);
       setScenario(scName);
     });
   }
   document.getElementById('gridSel').disabled = true; // adaptive default
+  const syncAdaptiveControls = () => {
+    const on = engineMode === 'adaptive';
+    document.getElementById('baseSel').disabled = !on;
+    document.getElementById('detailSel').disabled = !on;
+  };
+  document.getElementById('baseSel').addEventListener('change', (e) => {
+    SIM2.PARAMS.hMax = 1 / Number(e.target.value);
+    setScenario(scName);
+  });
+  document.getElementById('detailSel').addEventListener('change', (e) => {
+    SIM2.PARAMS.hMin = 1 / Number(e.target.value);
+    setScenario(scName);
+  });
   document.getElementById('meshChk').addEventListener('change', (e) => { showMesh = e.target.checked; });
   if (typeof GPUSIM === 'undefined' || !GPUSIM.available()) {
     document.getElementById('gpuBtn').disabled = true;

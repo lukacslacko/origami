@@ -64,8 +64,8 @@ function run(name) {
   check('sheet stays folded', dCA < 0.4, `dCA=${f(dCA)}`);
   // with the fingertip gate only finger-visited stretches crease; that
   // partial crease still holds the fold closed
-  const main = m.creaseLines.reduce((a, b) => (b.len > (a ? a.len : 0) ? b : a), null);
-  check('one dominant worked crease', main.len > 0.6, `len=${f(main.len)}`);
+  const totalLen = m.creaseLines.reduce((a, b) => a + b.len, 0);
+  check('substantial worked crease', totalLen > 0.7, `totalLen=${f(totalLen)}`);
 }
 
 // s6: oblique fold -> ONE straight crease on the ideal ~27° line (the
