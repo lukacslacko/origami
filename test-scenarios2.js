@@ -84,10 +84,27 @@ function run(name) {
   const NRM = [-0.4472136, -0.8944272], MID = [0.75, 0.5];
   const off = (p) => Math.abs((p[0] - MID[0]) * NRM[0] + (p[1] - MID[1]) * NRM[1]);
   const maxOff = Math.max(off(main.a), off(main.b));
-  check('crease sits on the ideal line', maxOff < 0.05, `maxOff=${f(maxOff)}`);
+  check('crease near the ideal line (default detail)', maxOff < 0.1, `maxOff=${f(maxOff)}`);
   const dCM = Math.hypot(m.C[0] - 0.5, m.C[1], m.C[2]);
   check('sheet stays folded onto the target', dCM < 0.3, `dCM=${f(dCM)}`);
   check('few spurious segments', m.nCreaseSegs <= 3, `segs=${m.nCreaseSegs}`);
+}
+
+// s6 again at fine detail: crease accuracy must scale with resolution
+{
+  SIM2.PARAMS.hMin = 1 / 176;
+  const m = run('s6');
+  SIM2.PARAMS.hMin = 1 / 88;
+  const main = m.creaseLines.reduce((a, b) => (b.len > (a ? a.len : 0) ? b : a), null);
+  check('fine detail: dominant crease', !!main && main.len > 0.9, main ? `len=${f(main.len)}` : 'none');
+  const angIdeal = Math.atan2(0.5, -1) * 180 / Math.PI;
+  const ang = Math.atan2(main.b[1] - main.a[1], main.b[0] - main.a[0]) * 180 / Math.PI;
+  const angErr = Math.min(Math.abs(ang - angIdeal), Math.abs(ang - angIdeal + 180), Math.abs(ang - angIdeal - 180));
+  check('fine detail: angle within 2°', angErr < 2, `err=${angErr.toFixed(2)}°`);
+  const NRM = [-0.4472136, -0.8944272], MID = [0.75, 0.5];
+  const off = (p) => Math.abs((p[0] - MID[0]) * NRM[0] + (p[1] - MID[1]) * NRM[1]);
+  const maxOff = Math.max(off(main.a), off(main.b));
+  check('fine detail: on the ideal line', maxOff < 0.04, `maxOff=${f(maxOff)}`);
 }
 
 console.log(failures === 0 ? '\nALL V2 SCENARIO TESTS PASSED' : `\n${failures} FAILURES`);

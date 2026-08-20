@@ -2817,7 +2817,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     creaseSoften: 1.4,
     plasticRate: 0.6,
     maxTheta0: 2.9,
-    rRefine: 0.10,       // bend radius that triggers refinement
+    rRefine: 0.05,       // bend radius that triggers refinement (incipient creases only)
     rCrease: 0.022,      // bend radius that becomes a crease (~1.5x paper thickness)
     muStatic: 0.22,
     muKinetic: 0.13,
@@ -2933,7 +2933,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           v: (uv[e.a * 2 + 1] + uv[e.b * 2 + 1]) / 2,
           lperp, elen: rest,
           alphaH: PARAMS.alphaBend * (lperp / Math.max(rest, 1e-9)),
-          damp: PARAMS.bendDamp * Math.max(1, (H_REF / lperp) * 0.8),
+          damp: PARAMS.bendDamp * Math.max(1, Math.pow((H_REF / lperp) * 0.8, 0.6)),
           cref,
         };
         if (cref) {
@@ -2961,7 +2961,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     const ne = edges.length, nh = hinges.length;
     const eIdx = new Int32Array(ne * 2);
     const eRest = new Float64Array(ne);
-    edges.forEach((e, i) => { eIdx[i * 2] = e.a; eIdx[i * 2 + 1] = e.b; eRest[i] = e.rest; });
+    let minEdge = 1;
+    edges.forEach((e, i) => {
+      eIdx[i * 2] = e.a; eIdx[i * 2 + 1] = e.b; eRest[i] = e.rest;
+      if (e.rest < minEdge) minEdge = e.rest;
+    });
+    paper.minEdge = Math.max(minEdge, 1e-4);
     const hIdx = new Int32Array(nh * 4);
     const hTheta0 = new Float64Array(nh);
     const hThC = new Float64Array(nh);
@@ -3112,7 +3117,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   const _pool = [];
   function stepFrame(paper, worldAt, dtFrame) {
     const P = PARAMS;
-    const sub = P.substeps;
+    // stiffness propagates ~one constraint per Gauss-Seidel pass, so the
+    // substep count must grow with resolution or fine sheets go towel-soft.
+    // Scale by the finest edge ACTUALLY in the mesh, not the Detail setting.
+    const sub = Math.round(P.substeps * Math.max(
+      1,
+      (0.5 / 88) / paper.minEdge,
+      Math.pow((1 / 22) / P.hMax, 1.5)));
     const dt = dtFrame / sub;
     const { pos, prev, vel, invMass, baseInvMass, edges, hinges, uv } = paper;
     const pinIdx = paper.anchorMap.get('0.000000,0.000000');
@@ -3343,7 +3354,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (paper.cooldown > 0) paper.cooldown--;
     if (paper.frame % PARAMS.detectEvery === 0 && paper.cooldown === 0) {
-      detectAndAdapt(paper, fingersNow);
+      const worldD = worldAt(paper.time);
+      const holds = [];
+      if (worldD.pinA) holds.push([0, 0, 0]);
+      for (const g of (worldD.grabs || [])) holds.push(g.pos);
+      detectAndAdapt(paper, fingersNow, holds);
     }
   }
 
@@ -3446,15 +3461,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     return false;
   }
 
-  function detectAndAdapt(paper, fingersNow) {
+  function detectAndAdapt(paper, fingersNow, holds) {
     const P = PARAMS;
     // refinement field on a 64^2 grid, with age-based coarsening
     const G = 64;
     if (!paper.sizeGrid) paper.sizeGrid = { n: G, data: new Float64Array(G * G).fill(P.hMax) };
     if (!paper.hotUntil) paper.hotUntil = new Float64Array(G * G).fill(-1);
     if (!paper.creaseStreak) paper.creaseStreak = new Uint8Array(G * G);
+    if (!paper.refineStreak) paper.refineStreak = new Uint8Array(G * G);
     const streak = paper.creaseStreak;
+    const rstreak = paper.refineStreak;
     const overNow = new Uint8Array(G * G);
+    const refineNow = new Uint8Array(G * G);
     const sg = paper.sizeGrid.data, hot = paper.hotUntil;
     let changedCells = 0, coarsenCells = 0;
 
@@ -3465,15 +3483,47 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       const dev = h.cref ? Math.abs(wrapPi(th - h.theta0)) : Math.abs(th);
       const kappa = dev / h.lperp;
       if (kappa > 1 / P.rRefine) {
+        // don't chase the fake curvature singularity at point-holds: a real
+        // gripper holds an area; the kink at a held vertex is an artifact
+        let atHold = false;
+        if (holds && holds.length) {
+          const mx = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2;
+          const my = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2;
+          const mz = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2;
+          for (const hp of holds) {
+            if (Math.hypot(mx - hp[0], my - hp[1], mz - hp[2]) < 0.07) { atHold = true; break; }
+          }
+        }
+        if (atHold) continue;
         const cxi = Math.max(0, Math.min(G - 1, Math.floor(h.u * G)));
         const cyi = Math.max(0, Math.min(G - 1, Math.floor(h.v * G)));
         const id = cyi * G + cxi;
-        hot[id] = paper.time + 6.0;
-        // quantize to two levels to avoid remesh thrash
-        const want = kappa > 0.6 / P.rCrease ? P.hMin : Math.min(P.hMax, P.hMin * 2.5);
+        refineNow[id] = 1;
+        // refinement needs persistence: transient curls of a swinging sheet
+        // must not smear expensive fine bands across the whole sheet. The
+        // fingertip's neighborhood is deliberate work, not a transient —
+        // refine there immediately so creases can form under the press.
+        let atFinger = false;
+        if (fingersNow.length) {
+          const mfx = (paper.pos[h.e0 * 3] + paper.pos[h.e1 * 3]) / 2;
+          const mfy = (paper.pos[h.e0 * 3 + 1] + paper.pos[h.e1 * 3 + 1]) / 2;
+          const mfz = (paper.pos[h.e0 * 3 + 2] + paper.pos[h.e1 * 3 + 2]) / 2;
+          atFinger = nearAnyFinger(fingersNow, mfx, mfy, mfz);
+        }
+        if (!atFinger && rstreak[id] < 1) continue;
+        hot[id] = paper.time + 2.5;
+        // size ~ measured bend radius (0.3 r), snapped to power-of-two levels
+        // of hMin so gentle curls stay cheap at any Detail setting
+        let want = Math.max(P.hMin, Math.min(P.hMax, 0.3 / kappa));
+        let level = P.hMin;
+        while (level * 2 <= want) level *= 2;
+        want = Math.min(P.hMax, level);
         if (want < sg[id] - 1e-9) { sg[id] = want; changedCells++; }
       }
       if (!h.cref && kappa > 1 / P.rCrease) {
+        // fit creases only from a RESOLVED ridge: coarse hinges give sparse,
+        // noisy clusters and a wrong line; let refinement build the band first
+        if (h.lperp > 2.5 * P.hMin) continue;
         // creasing requires a pressing fingertip: with a contact cushion ~20x
         // thicker than real paper, a fold merely laid closed reaches the same
         // radius as a pressed one, so geometry alone cannot distinguish them.
@@ -3503,10 +3553,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
       }
     }
-    for (let id = 0; id < G * G; id++) streak[id] = overNow[id] ? Math.min(250, streak[id] + 1) : 0;
+    for (let id = 0; id < G * G; id++) {
+      streak[id] = overNow[id] ? Math.min(250, streak[id] + 1) : 0;
+      rstreak[id] = refineNow[id] ? Math.min(250, rstreak[id] + 1) : 0;
+    }
     // age-based coarsening (never coarsen crease bands: mesher re-imposes them)
     for (let id = 0; id < G * G; id++) {
-      if (sg[id] < P.hMax && hot[id] >= 0 && paper.time > hot[id] + 2.0) {
+      if (sg[id] < P.hMax && hot[id] >= 0 && paper.time > hot[id] + 0.5) {
         sg[id] = P.hMax; hot[id] = -1; coarsenCells++;
       }
     }
@@ -3558,7 +3611,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           thMean += c.th;
         }
         thMean /= arr.length;
-        if (s1 - s0 < 0.03) { s0 -= 0.02; s1 += 0.02; }
+        // a NEW crease must come from a substantial pressed ridge at once —
+        // the short transient bulge ahead of a shepherding slide must not
+        // seed a (mis-oriented) crease that extension then locks in
+        const clusterExtent = s1 - s0;
         s0 -= 0.02; s1 += 0.02;
         let A = [mu + s0 * dx, mv + s0 * dy];
         let B = [mu + s1 * dx, mv + s1 * dy];
@@ -3602,8 +3658,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           }
         }
         if (!extended) {
+          if (clusterExtent < 0.14) continue;
           const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
-          if (len < 0.10) continue;
+          if (len < 0.18) continue;
           const c = {
             a: A, b: B, len,
             dir: [(B[0] - A[0]) / len, (B[1] - A[1]) / len],
